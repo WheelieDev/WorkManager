@@ -20,6 +20,8 @@ Route::post('/logout', function (Request $request) {
 Route::middleware('auth')->group(function () {
     Route::livewire('/', 'pages::dashboard')->name('dashboard');
 
+    Route::livewire('/timesheet', 'pages::timesheet')->name('timesheet');
+
     Route::livewire('/patterns', 'pages::patterns.index')->name('patterns.index');
     Route::livewire('/patterns/create', 'pages::patterns.form')->name('patterns.create');
     Route::livewire('/patterns/{pattern}/edit', 'pages::patterns.form')->name('patterns.edit');

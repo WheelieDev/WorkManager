@@ -79,7 +79,7 @@ it('renders the dashboard with the sidebar for a signed in user', function () {
         ->get(route('dashboard'))
         ->assertOk()
         ->assertSee('Dashboard')
-        ->assertSee('Welcome back, Tom.')
+        ->assertSee('Flexi balance')
         ->assertSee('data-flux-sidebar', escape: false);
 });
 

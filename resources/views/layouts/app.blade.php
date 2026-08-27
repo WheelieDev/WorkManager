@@ -32,6 +32,10 @@
                         Dashboard
                     </flux:navlist.item>
 
+                    <flux:navlist.item icon="clock" :href="route('timesheet')" :current="request()->routeIs('timesheet')" wire:navigate>
+                        Timesheet
+                    </flux:navlist.item>
+
                     <flux:navlist.item icon="calendar-days" :href="route('patterns.index')" :current="request()->routeIs('patterns.*')" wire:navigate>
                         Working patterns
                     </flux:navlist.item>
