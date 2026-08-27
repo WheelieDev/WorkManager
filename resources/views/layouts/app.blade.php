@@ -31,6 +31,10 @@
                     <flux:navlist.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
                         Dashboard
                     </flux:navlist.item>
+
+                    <flux:navlist.item icon="calendar-days" :href="route('patterns.index')" :current="request()->routeIs('patterns.*')" wire:navigate>
+                        Working patterns
+                    </flux:navlist.item>
                 </flux:navlist>
 
                 <flux:spacer />
