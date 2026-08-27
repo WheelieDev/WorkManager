@@ -9,10 +9,10 @@ use Livewire\Component;
 
 new class extends Component {
     /**
-     * The Monday of the week being viewed.
+     * The index of the period being viewed.
      */
     #[Url]
-    public string $week = '';
+    public ?int $period = null;
 
     public ?int $editingId = null;
 
@@ -25,37 +25,35 @@ new class extends Component {
     public bool $showingForm = false;
 
     /**
-     * Default to the week containing today.
+     * Default to the period containing today.
      */
     public function mount(): void
     {
-        if ($this->week === '') {
-            $this->week = now()->startOfWeek()->toDateString();
-        }
+        $this->period ??= FlexiPeriod::current()->index;
     }
 
     /**
-     * Get the Monday of the week being viewed.
+     * Get the period being viewed.
      */
-    public function weekStart(): Carbon
+    public function period(): FlexiPeriod
     {
-        return Carbon::parse($this->week)->startOfWeek();
+        return new FlexiPeriod($this->period ?? FlexiPeriod::current()->index);
     }
 
     /**
-     * Move to the previous or next week.
+     * Move to an earlier or later period.
      */
-    public function shiftWeek(int $weeks): void
+    public function shiftPeriod(int $periods): void
     {
-        $this->week = $this->weekStart()->addWeeks($weeks)->toDateString();
+        $this->period = $this->period()->index + $periods;
     }
 
     /**
-     * Jump back to the current week.
+     * Jump back to the period containing today.
      */
-    public function thisWeek(): void
+    public function thisPeriod(): void
     {
-        $this->week = now()->startOfWeek()->toDateString();
+        $this->period = FlexiPeriod::current()->index;
     }
 
     /**
@@ -122,43 +120,59 @@ new class extends Component {
     }
 
     /**
-     * Build the week, the day totals and the period summary.
+     * Build every week of the period, with day and week totals.
      */
     public function with(): array
     {
+        $period = $this->period();
         $calculator = new FlexiCalculator;
-        $start = $this->weekStart();
-        $period = FlexiPeriod::forDate($start);
+        $calculator->warmRange($period->start, $period->end);
 
         $sessions = WorkSession::query()
-            ->whereBetween('started_at', [$start->copy()->startOfDay(), $start->copy()->addDays(6)->endOfDay()])
+            ->whereBetween('started_at', [$period->start, $period->end])
             ->orderBy('started_at')
             ->get()
             ->groupBy(fn (WorkSession $session): string => $session->date()->toDateString());
 
-        $days = collect(range(0, 6))->map(function (int $offset) use ($start, $sessions, $calculator): array {
-            $date = $start->copy()->addDays($offset);
-            $key = $date->toDateString();
+        $weeks = $period->weekStarts()->map(function (Carbon $start, int $index) use ($sessions, $calculator): array {
+            $days = collect(range(0, 6))->map(function (int $offset) use ($start, $sessions, $calculator): array {
+                $date = $start->copy()->addDays($offset);
+                $key = $date->toDateString();
+
+                return [
+                    'date' => $date,
+                    'key' => $key,
+                    'sessions' => $sessions->get($key, collect()),
+                    'worked' => $calculator->workedHours($date),
+                    'expected' => $calculator->expectedHours($date),
+                    'delta' => $calculator->deltaFor($date),
+                    'isToday' => $date->isToday(),
+                    'isFuture' => $date->startOfDay()->isFuture(),
+                    'bankHoliday' => $calculator->bankHolidayTitle($date),
+                ];
+            });
+
+            // Days that have not happened yet are excluded, so the week totals
+            // agree with the balance rather than counting hours not yet owed.
+            $counted = $days->reject(fn (array $day): bool => $day['isFuture']);
 
             return [
-                'date' => $date,
-                'key' => $key,
-                'sessions' => $sessions->get($key, collect()),
-                'worked' => $calculator->workedHours($date),
-                'expected' => $calculator->expectedHours($date),
-                'delta' => $calculator->deltaFor($date),
-                'isToday' => $date->isToday(),
-                'isFuture' => $date->startOfDay()->isFuture(),
-                'bankHoliday' => $calculator->bankHolidayTitle($date),
+                'number' => $index + 1,
+                'start' => $start,
+                'days' => $days,
+                'worked' => round($counted->sum('worked'), 2),
+                'expected' => round($counted->sum('expected'), 2),
+                'delta' => round($counted->sum('delta'), 2),
+                'hasCountedDays' => $counted->isNotEmpty(),
+                'isCurrent' => $start->isSameWeek(now()),
             ];
         });
 
         $balance = $calculator->balanceFor($period);
 
         return [
-            'days' => $days,
-            'period' => $period,
-            'weekNumber' => $period->weekNumberFor($start),
+            'weeks' => $weeks,
+            'flexiPeriod' => $period,
             'balance' => $balance,
             'carry' => $calculator->carryInto($period),
             'isOverLimit' => $calculator->isOverLimit($balance),
@@ -184,92 +198,136 @@ new class extends Component {
         </div>
 
         <div class="flex items-center gap-1">
-            <flux:button icon="chevron-left" size="sm" variant="subtle" wire:click="shiftWeek(-1)" aria-label="Previous week" />
-            <flux:button size="sm" variant="subtle" wire:click="thisWeek">This week</flux:button>
-            <flux:button icon="chevron-right" size="sm" variant="subtle" wire:click="shiftWeek(1)" aria-label="Next week" />
+            <flux:button icon="chevron-left" size="sm" variant="subtle" wire:click="shiftPeriod(-1)" aria-label="Previous period" />
+            <flux:button size="sm" variant="subtle" wire:click="thisPeriod">This period</flux:button>
+            <flux:button icon="chevron-right" size="sm" variant="subtle" wire:click="shiftPeriod(1)" aria-label="Next period" />
         </div>
     </div>
 
     <flux:text variant="subtle" class="mt-1 text-sm">
-        Week {{ $weekNumber }} of {{ $period->weekCount() }} &middot; period {{ $period->label() }}@if ($carry != 0) &middot; includes {{ $carry > 0 ? '+' : '' }}{{ number_format($carry, 2) }}h carried in @endif
+        Period {{ $flexiPeriod->label() }}@if ($carry != 0) &middot; includes {{ $carry > 0 ? '+' : '' }}{{ number_format($carry, 2) }}h carried in @endif
     </flux:text>
 
-    <div class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7">
-        @foreach ($days as $day)
-            <div
-                wire:key="day-{{ $day['key'] }}"
-                @class([
-                    'rounded-lg border px-2.5 py-2 flex flex-col gap-1',
-                    'border-zinc-200 dark:border-zinc-700' => ! $day['isToday'],
-                    'border-blue-500 dark:border-blue-400' => $day['isToday'],
-                    'opacity-60' => $day['isFuture'],
-                ])
-            >
-                <div class="flex items-baseline justify-between gap-1">
-                    <div class="min-w-0 truncate">
-                        <span class="text-sm font-medium text-zinc-800 dark:text-white">{{ $day['date']->format('D') }}</span>
-                        <span class="text-xs text-zinc-500 dark:text-white/60">{{ $day['date']->format('j M') }}</span>
-                    </div>
+    <div class="mt-4 flex flex-col gap-3">
+        @foreach ($weeks as $week)
+            <section wire:key="week-{{ $week['start']->toDateString() }}">
+                <div class="mb-1 flex items-baseline justify-between gap-2">
+                    <div class="flex items-baseline gap-2">
+                        <span @class([
+                            'text-sm font-medium',
+                            'text-zinc-800 dark:text-white' => $week['isCurrent'],
+                            'text-zinc-500 dark:text-white/60' => ! $week['isCurrent'],
+                        ])>Week {{ $week['number'] }}</span>
 
-                    <flux:button
-                        icon="plus"
-                        size="xs"
-                        variant="subtle"
-                        inset="top bottom"
-                        wire:click="addSession('{{ $day['key'] }}')"
-                        :aria-label="'Add session on '.$day['date']->format('l j F')"
-                    />
-                </div>
+                        <span class="text-xs text-zinc-400 dark:text-white/40">
+                            {{ $week['start']->format('j M') }}
+                        </span>
 
-                @if ($day['bankHoliday'])
-                    <div class="truncate text-xs text-purple-600 dark:text-purple-300" title="{{ $day['bankHoliday'] }}">
-                        {{ $day['bankHoliday'] }}
-                    </div>
-                @endif
-
-                @forelse ($day['sessions'] as $session)
-                    <div class="group flex items-center justify-between gap-1" wire:key="session-{{ $session->id }}">
-                        @if ($session->isRunning())
-                            <span class="text-xs text-amber-600 dark:text-amber-400">
-                                {{ $session->started_at->format('H:i') }} running
-                            </span>
-                        @else
-                            <button
-                                type="button"
-                                class="truncate text-xs tabular-nums text-zinc-700 hover:underline dark:text-zinc-300"
-                                wire:click="editSession({{ $session->id }})"
-                            >
-                                {{ $session->started_at->format('H:i') }}&ndash;{{ $session->ended_at->format('H:i') }}
-                            </button>
-
-                            <button
-                                type="button"
-                                class="shrink-0 text-xs text-zinc-400 opacity-0 transition hover:text-rose-600 focus-visible:opacity-100 group-hover:opacity-100 dark:hover:text-rose-400"
-                                wire:click="deleteSession({{ $session->id }})"
-                                wire:confirm="Delete this session?"
-                                aria-label="Delete session"
-                            >&times;</button>
+                        @if ($week['isCurrent'])
+                            <flux:badge size="sm" color="blue" inset="top bottom">This week</flux:badge>
                         @endif
                     </div>
-                @empty
-                    <div class="text-xs text-zinc-400 dark:text-white/40">&mdash;</div>
-                @endforelse
 
-                <div class="mt-auto flex items-baseline justify-between gap-1 border-t border-zinc-100 pt-1 text-xs tabular-nums dark:border-zinc-800">
-                    <span class="text-zinc-500 dark:text-white/60">
-                        {{ number_format($day['worked'], 2) }} / {{ number_format($day['expected'], 2) }}
-                    </span>
-
-                    <span @class([
-                        'font-medium',
-                        'text-lime-600 dark:text-lime-400' => $day['delta'] > 0,
-                        'text-rose-600 dark:text-rose-400' => $day['delta'] < 0,
-                        'text-zinc-400 dark:text-white/40' => $day['delta'] == 0,
-                    ])>
-                        {{ $day['delta'] > 0 ? '+' : '' }}{{ number_format($day['delta'], 2) }}
-                    </span>
+                    @if ($week['hasCountedDays'])
+                        <div class="flex items-baseline gap-2 text-xs tabular-nums">
+                            <span class="text-zinc-500 dark:text-white/60">
+                                {{ number_format($week['worked'], 2) }} / {{ number_format($week['expected'], 2) }}
+                            </span>
+                            <span @class([
+                                'font-medium',
+                                'text-lime-600 dark:text-lime-400' => $week['delta'] > 0,
+                                'text-rose-600 dark:text-rose-400' => $week['delta'] < 0,
+                                'text-zinc-400 dark:text-white/40' => $week['delta'] == 0,
+                            ])>{{ $week['delta'] > 0 ? '+' : '' }}{{ number_format($week['delta'], 2) }}</span>
+                        </div>
+                    @else
+                        <span class="text-xs text-zinc-400 dark:text-white/40">Not started</span>
+                    @endif
                 </div>
-            </div>
+
+                <div class="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+                    @foreach ($week['days'] as $day)
+                        <div
+                            wire:key="day-{{ $day['key'] }}"
+                            @class([
+                                'rounded-lg border px-2.5 py-2 flex flex-col gap-1',
+                                'border-zinc-200 dark:border-zinc-700' => ! $day['isToday'],
+                                'border-blue-500 dark:border-blue-400' => $day['isToday'],
+                                'opacity-60' => $day['isFuture'],
+                            ])
+                        >
+                            <div class="flex items-baseline justify-between gap-1">
+                                <div class="min-w-0 truncate">
+                                    <span class="text-sm font-medium text-zinc-800 dark:text-white">{{ $day['date']->format('D') }}</span>
+                                    <span class="text-xs text-zinc-500 dark:text-white/60">{{ $day['date']->format('j M') }}</span>
+                                </div>
+
+                                <flux:button
+                                    icon="plus"
+                                    size="xs"
+                                    variant="subtle"
+                                    inset="top bottom"
+                                    wire:click="addSession('{{ $day['key'] }}')"
+                                    :aria-label="'Add session on '.$day['date']->format('l j F')"
+                                />
+                            </div>
+
+                            @if ($day['bankHoliday'])
+                                <div class="truncate text-xs text-purple-600 dark:text-purple-300" title="{{ $day['bankHoliday'] }}">
+                                    {{ $day['bankHoliday'] }}
+                                </div>
+                            @endif
+
+                            @forelse ($day['sessions'] as $session)
+                                <div class="group flex items-center justify-between gap-1" wire:key="session-{{ $session->id }}">
+                                    @if ($session->isRunning())
+                                        <span class="text-xs text-amber-600 dark:text-amber-400">
+                                            {{ $session->started_at->format('H:i') }} running
+                                        </span>
+                                    @else
+                                        <button
+                                            type="button"
+                                            class="truncate text-xs tabular-nums text-zinc-700 hover:underline dark:text-zinc-300"
+                                            wire:click="editSession({{ $session->id }})"
+                                        >
+                                            {{ $session->started_at->format('H:i') }}&ndash;{{ $session->ended_at->format('H:i') }}
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            class="shrink-0 text-xs text-zinc-400 opacity-0 transition hover:text-rose-600 focus-visible:opacity-100 group-hover:opacity-100 dark:hover:text-rose-400"
+                                            wire:click="deleteSession({{ $session->id }})"
+                                            wire:confirm="Delete this session?"
+                                            aria-label="Delete session"
+                                        >&times;</button>
+                                    @endif
+                                </div>
+                            @empty
+                                <div class="text-xs text-zinc-400 dark:text-white/40">&mdash;</div>
+                            @endforelse
+
+                            <div class="mt-auto flex items-baseline justify-between gap-1 border-t border-zinc-100 pt-1 text-xs tabular-nums dark:border-zinc-800">
+                                <span class="text-zinc-500 dark:text-white/60">
+                                    {{ number_format($day['worked'], 2) }} / {{ number_format($day['expected'], 2) }}
+                                </span>
+
+                                @if ($day['isFuture'])
+                                    <span class="text-zinc-400 dark:text-white/40">&mdash;</span>
+                                @else
+                                    <span @class([
+                                        'font-medium',
+                                        'text-lime-600 dark:text-lime-400' => $day['delta'] > 0,
+                                        'text-rose-600 dark:text-rose-400' => $day['delta'] < 0,
+                                        'text-zinc-400 dark:text-white/40' => $day['delta'] == 0,
+                                    ])>
+                                        {{ $day['delta'] > 0 ? '+' : '' }}{{ number_format($day['delta'], 2) }}
+                                    </span>
+                                @endif
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+            </section>
         @endforeach
     </div>
 

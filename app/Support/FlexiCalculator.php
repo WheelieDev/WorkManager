@@ -82,6 +82,33 @@ class FlexiCalculator
     }
 
     /**
+     * Load worked hours for a date range in one query.
+     *
+     * Without this, a period balance costs a query per day, and the period
+     * view would multiply that by six weeks.
+     */
+    public function warmRange(DateTimeInterface $from, DateTimeInterface $to): void
+    {
+        $from = Carbon::parse($from)->startOfDay();
+        $to = Carbon::parse($to)->endOfDay();
+
+        $byDate = WorkSession::query()
+            ->completed()
+            ->whereBetween('started_at', [$from, $to])
+            ->get()
+            ->groupBy(fn (WorkSession $session): string => $session->date()->toDateString());
+
+        for ($date = $from->copy(); $date->lessThanOrEqualTo($to); $date = $date->addDay()) {
+            $key = $date->toDateString();
+
+            $this->worked[$key] ??= round(
+                $byDate->get($key, collect())->sum(fn (WorkSession $session): float => $session->hours()),
+                2,
+            );
+        }
+    }
+
+    /**
      * Get the difference between hours worked and hours expected on a date.
      */
     public function deltaFor(DateTimeInterface $date): float
@@ -101,6 +128,8 @@ class FlexiCalculator
         if ($through === null) {
             return 0.0;
         }
+
+        $this->warmRange($period->start, $through);
 
         return round(
             $period->dates()

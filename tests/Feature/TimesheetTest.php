@@ -4,6 +4,7 @@ use App\Enums\Weekday;
 use App\Models\User;
 use App\Models\WorkPattern;
 use App\Models\WorkSession;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
 beforeEach(function () {
@@ -21,23 +22,44 @@ beforeEach(function () {
     }
 });
 
-it('opens on the week containing today', function () {
+it('opens on the period containing today', function () {
     Livewire::test('pages::timesheet')
-        ->assertSet('week', '2026-08-24')
-        ->assertSee('Week 3 of 6');
+        ->assertSet('period', 0)
+        ->assertSee('10 Aug - 20 Sep 2026');
 });
 
-it('steps between weeks', function () {
+it('shows every week of the period at once', function () {
     Livewire::test('pages::timesheet')
-        ->call('shiftWeek', -1)
-        ->assertSet('week', '2026-08-17')
-        ->assertSee('Week 2 of 6')
-        ->call('shiftWeek', 1)
-        ->call('shiftWeek', 1)
-        ->assertSet('week', '2026-08-31')
-        ->call('thisWeek')
-        ->assertSet('week', '2026-08-24');
+        ->assertSeeInOrder(['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5', 'Week 6'])
+        ->assertSeeInOrder(['10 Aug', '17 Aug', '24 Aug', '31 Aug', '7 Sep', '14 Sep']);
 });
+
+it('marks the week containing today', function () {
+    Livewire::test('pages::timesheet')->assertSee('This week');
+});
+
+it('steps between periods', function () {
+    Livewire::test('pages::timesheet')
+        ->call('shiftPeriod', -1)
+        ->assertSet('period', -1)
+        ->assertSee('29 Jun - 9 Aug 2026')
+        ->call('shiftPeriod', 1)
+        ->call('shiftPeriod', 1)
+        ->assertSet('period', 1)
+        ->assertSee('21 Sep - 1 Nov 2026')
+        ->call('thisPeriod')
+        ->assertSet('period', 0);
+});
+
+it('totals each week of the period', function () {
+    // Week 3 of the period is 24 to 30 August.
+    WorkSession::factory()->on('2026-08-24', '09:00', '18:00')->create();
+    WorkSession::factory()->on('2026-08-25', '09:00', '16:30')->create();
+
+    Livewire::test('pages::timesheet')
+        ->assertSee('16.50 / 30.00')
+        ->assertSee('-13.50');
+})->note('Expected counts Mon to Wed only, since later days have not happened.');
 
 it('shows the sessions worked in the week', function () {
     WorkSession::factory()->on('2026-08-25', '09:00', '17:30')->create();
@@ -97,6 +119,18 @@ it('shows each day totals on a single compact line', function () {
         ->assertDontSee('Expected</dt>', escape: false);
 });
 
+it('does not count future days towards the week totals', function () {
+    // Today is Thursday 27 August. Week 1 has fully elapsed and expects all
+    // five weekdays; the current week expects only Monday to Thursday.
+    Livewire::test('pages::timesheet')
+        ->assertSee('0.00 / 37.50')
+        ->assertSee('0.00 / 30.00');
+})->note('Otherwise the current week reads worse than the balance does.');
+
+it('marks a week that has not started yet', function () {
+    Livewire::test('pages::timesheet')->assertSee('Not started');
+});
+
 it('rejects an end time before the start time', function () {
     Livewire::test('pages::timesheet')
         ->call('addSession', '2026-08-25')
@@ -109,13 +143,22 @@ it('rejects an end time before the start time', function () {
 });
 
 it('shows the running balance for the period', function () {
-    // Monday to Wednesday of week 3 worked to pattern, plus an extra hour on Tuesday.
     WorkSession::factory()->on('2026-08-24', '09:00', '16:30')->create();
     WorkSession::factory()->on('2026-08-25', '09:00', '17:30')->create();
 
-    Livewire::test('pages::timesheet')
-        ->assertSee('Balance');
+    Livewire::test('pages::timesheet')->assertSee('Balance');
 });
+
+it('loads the whole period without a query per day', function () {
+    WorkSession::factory()->on('2026-08-24', '09:00', '18:00')->create();
+
+    DB::enableQueryLog();
+    Livewire::test('pages::timesheet');
+    $queries = count(DB::getQueryLog());
+    DB::disableQueryLog();
+
+    expect($queries)->toBeLessThan(20);
+})->note('42 days once cost a query each; they are now batched.');
 
 it('warns when the balance passes the limit', function () {
     WorkPattern::query()->delete();
