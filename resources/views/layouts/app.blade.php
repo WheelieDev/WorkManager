@@ -17,7 +17,42 @@
     </head>
 
     <body class="min-h-screen bg-white dark:bg-zinc-800">
-        {{ $slot }}
+        @auth
+            <flux:sidebar sticky stashable class="border-e border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
+                <flux:sidebar.toggle class="lg:hidden" icon="x-mark" inset="left" />
+
+                <flux:sidebar.brand
+                    :href="route('dashboard')"
+                    :name="config('app.name')"
+                    class="px-2"
+                />
+
+                <flux:navlist variant="outline">
+                    <flux:navlist.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
+                        Dashboard
+                    </flux:navlist.item>
+                </flux:navlist>
+
+                <flux:spacer />
+
+                <flux:navlist variant="outline">
+                    <form action="{{ route('logout') }}" method="POST" class="w-full">
+                        @csrf
+                        <flux:navlist.item as="button" type="submit" icon="arrow-right-start-on-rectangle" class="w-full">
+                            Sign out
+                        </flux:navlist.item>
+                    </form>
+                </flux:navlist>
+            </flux:sidebar>
+
+            <flux:header class="lg:hidden">
+                <flux:sidebar.toggle class="lg:hidden" icon="bars-2" inset="left" />
+            </flux:header>
+        @endauth
+
+        <flux:main>
+            {{ $slot }}
+        </flux:main>
 
         @fluxScripts
     </body>

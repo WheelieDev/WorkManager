@@ -15,7 +15,7 @@ it('signs in with the correct pin', function () {
         ->set('pin', '482913')
         ->call('authenticate')
         ->assertHasNoErrors()
-        ->assertRedirect(route('home'));
+        ->assertRedirect(route('dashboard'));
 
     expect(auth()->id())->toBe($user->id);
 });
@@ -71,5 +71,20 @@ it('lets a signed in user log out', function () {
 it('keeps signed in users away from the login screen', function () {
     $this->actingAs(User::factory()->create())
         ->get(route('login'))
-        ->assertRedirect(route('home'));
+        ->assertRedirect(route('dashboard'));
+});
+
+it('renders the dashboard with the sidebar for a signed in user', function () {
+    $this->actingAs(User::factory()->create(['name' => 'Tom']))
+        ->get(route('dashboard'))
+        ->assertOk()
+        ->assertSee('Dashboard')
+        ->assertSee('Welcome back, Tom.')
+        ->assertSee('data-flux-sidebar', escape: false);
+});
+
+it('does not render the sidebar for guests', function () {
+    $this->get(route('login'))
+        ->assertOk()
+        ->assertDontSee('data-flux-sidebar', escape: false);
 });

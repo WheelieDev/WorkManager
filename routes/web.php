@@ -18,5 +18,5 @@ Route::post('/logout', function (Request $request) {
 })->middleware('auth')->name('logout');
 
 Route::middleware('auth')->group(function () {
-    Route::view('/', 'welcome')->name('home');
+    Route::livewire('/', 'pages::dashboard')->name('dashboard');
 });

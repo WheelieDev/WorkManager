@@ -39,7 +39,7 @@ new class extends Component {
 
         session()->regenerate();
 
-        $this->redirectIntended(default: route('home'), navigate: true);
+        $this->redirectIntended(default: route('dashboard'), navigate: true);
     }
 
     /**
