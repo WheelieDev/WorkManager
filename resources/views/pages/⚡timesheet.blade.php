@@ -149,6 +149,7 @@ new class extends Component {
                 'delta' => $calculator->deltaFor($date),
                 'isToday' => $date->isToday(),
                 'isFuture' => $date->startOfDay()->isFuture(),
+                'bankHoliday' => $calculator->bankHolidayTitle($date),
             ];
         });
 
@@ -216,6 +217,10 @@ new class extends Component {
                 <div>
                     <flux:text variant="strong">{{ $day['date']->format('D') }}</flux:text>
                     <flux:text variant="subtle" class="text-sm">{{ $day['date']->format('j M') }}</flux:text>
+
+                    @if ($day['bankHoliday'])
+                        <flux:badge size="sm" color="purple" class="mt-1">{{ $day['bankHoliday'] }}</flux:badge>
+                    @endif
                 </div>
 
                 <div class="flex flex-col gap-1">

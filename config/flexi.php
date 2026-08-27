@@ -40,4 +40,19 @@ return [
 
     'limit_hours' => 16,
 
+    /*
+    |--------------------------------------------------------------------------
+    | Bank Holidays
+    |--------------------------------------------------------------------------
+    |
+    | Bank holidays are pulled from the gov.uk feed by the bank-holidays:sync
+    | command. A bank holiday expects no hours, so not working one does not
+    | count against the balance.
+    |
+    */
+
+    'bank_holidays_url' => 'https://www.gov.uk/bank-holidays.json',
+
+    'bank_holidays_division' => 'england-and-wales',
+
 ];

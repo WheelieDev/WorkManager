@@ -56,6 +56,7 @@ new class extends Component {
             'workedToday' => $calculator->workedHours(now()),
             'expectedToday' => $calculator->expectedHours(now()),
             'deltaToday' => $calculator->deltaFor(now()),
+            'bankHolidayToday' => $calculator->bankHolidayTitle(now()),
             'period' => $period,
             'balance' => $balance,
             'isOverLimit' => $calculator->isOverLimit($balance),
@@ -68,7 +69,12 @@ new class extends Component {
 
 <div>
     <flux:heading size="xl" level="1">Dashboard</flux:heading>
-    <flux:text class="mt-2 mb-6">{{ now()->format('l j F Y') }}</flux:text>
+    <flux:text class="mt-2 mb-6">
+        {{ now()->format('l j F Y') }}
+        @if ($bankHolidayToday)
+            &middot; <flux:badge size="sm" color="purple" inset="top bottom">{{ $bankHolidayToday }}</flux:badge>
+        @endif
+    </flux:text>
 
     <flux:separator variant="subtle" />
 

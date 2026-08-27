@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Enums\Weekday;
+use App\Models\BankHoliday;
 use App\Models\WorkPattern;
 use App\Models\WorkSession;
 use DateTimeInterface;
@@ -28,11 +29,22 @@ class FlexiCalculator
     protected array $worked = [];
 
     /**
+     * Cached bank holiday titles, keyed by date.
+     *
+     * @var array<string, string>|null
+     */
+    protected ?array $bankHolidays = null;
+
+    /**
      * Get the hours the pattern expects to be worked on the given date.
      */
     public function expectedHours(DateTimeInterface $date): float
     {
         $date = Carbon::parse($date)->startOfDay();
+
+        if ($this->isBankHoliday($date)) {
+            return 0.0;
+        }
 
         $weekday = Weekday::tryFrom($date->dayOfWeekIso);
 
@@ -136,6 +148,24 @@ class FlexiCalculator
     public function isOverLimit(float $balance): bool
     {
         return abs($balance) > FlexiPeriod::limit();
+    }
+
+    /**
+     * Determine whether the given date is a bank holiday.
+     */
+    public function isBankHoliday(DateTimeInterface $date): bool
+    {
+        return $this->bankHolidayTitle($date) !== null;
+    }
+
+    /**
+     * Get the name of the bank holiday falling on the given date, if any.
+     */
+    public function bankHolidayTitle(DateTimeInterface $date): ?string
+    {
+        $this->bankHolidays ??= BankHoliday::titlesByDate();
+
+        return $this->bankHolidays[Carbon::parse($date)->toDateString()] ?? null;
     }
 
     /**
