@@ -11,9 +11,9 @@ new class extends Component {
     public string $start_date = '';
 
     /**
-     * The submitted times, keyed by weekday value.
+     * The submitted days, keyed by weekday value.
      *
-     * @var array<int, array{start_time: string, end_time: string}>
+     * @var array<int, array{worked: bool, start_time: string, end_time: string}>
      */
     public array $days = [];
 
@@ -32,8 +32,9 @@ new class extends Component {
             $day = $existing?->get($weekday->value);
 
             $this->days[$weekday->value] = [
-                'start_time' => $day?->start_time?->format('H:i') ?? '',
-                'end_time' => $day?->end_time?->format('H:i') ?? '',
+                'worked' => $this->pattern === null ? true : (bool) $day?->isWorked(),
+                'start_time' => $day?->start_time?->format('H:i') ?? '09:00',
+                'end_time' => $day?->end_time?->format('H:i') ?? '17:00',
             ];
         }
     }
@@ -51,13 +52,12 @@ new class extends Component {
 
         foreach (Weekday::cases() as $weekday) {
             $day = $validated['days'][$weekday->value];
-            $isWorked = $day['start_time'] !== '' && $day['end_time'] !== '';
 
             $pattern->days()->updateOrCreate(
                 ['weekday' => $weekday],
                 [
-                    'start_time' => $isWorked ? $day['start_time'] : null,
-                    'end_time' => $isWorked ? $day['end_time'] : null,
+                    'start_time' => $day['worked'] ? $day['start_time'] : null,
+                    'end_time' => $day['worked'] ? $day['end_time'] : null,
                 ],
             );
         }
@@ -79,8 +79,9 @@ new class extends Component {
                 Rule::unique('work_patterns', 'start_date')->ignore($this->pattern),
             ],
             'days' => ['required', 'array'],
-            'days.*.start_time' => ['nullable', 'date_format:H:i', 'required_with:days.*.end_time'],
-            'days.*.end_time' => ['nullable', 'date_format:H:i', 'required_with:days.*.start_time', 'after:days.*.start_time'],
+            'days.*.worked' => ['boolean'],
+            'days.*.start_time' => ['nullable', 'required_if:days.*.worked,true', 'date_format:H:i'],
+            'days.*.end_time' => ['nullable', 'required_if:days.*.worked,true', 'date_format:H:i', 'after:days.*.start_time'],
         ];
     }
 
@@ -93,8 +94,8 @@ new class extends Component {
     {
         return [
             'start_date.unique' => 'A pattern already starts on that date.',
-            'days.*.start_time.required_with' => 'Enter a start time as well as an end time.',
-            'days.*.end_time.required_with' => 'Enter an end time as well as a start time.',
+            'days.*.start_time.required_if' => 'Enter a start time for this day.',
+            'days.*.end_time.required_if' => 'Enter an end time for this day.',
             'days.*.end_time.after' => 'The end time must be after the start time.',
         ];
     }
@@ -112,7 +113,7 @@ new class extends Component {
     <flux:heading size="xl" level="1">
         {{ $pattern ? 'Edit pattern' : 'New pattern' }}
     </flux:heading>
-    <flux:text class="mt-2">Leave a day blank if you do not work it.</flux:text>
+    <flux:text class="mt-2">Switch on the days you work, then set the hours for each.</flux:text>
 
     <flux:separator variant="subtle" class="my-6" />
 
@@ -125,28 +126,37 @@ new class extends Component {
         </flux:field>
 
         <div class="flex flex-col gap-3">
-            <flux:heading size="lg">Hours</flux:heading>
+            <flux:heading size="lg">Days worked</flux:heading>
 
             @foreach ($weekdays as $weekday)
                 <div class="flex flex-col gap-1" wire:key="day-{{ $weekday->value }}">
                     <div class="flex items-center gap-3">
+                        <flux:switch
+                            wire:model.live="days.{{ $weekday->value }}.worked"
+                            :label:sr="'Work '.$weekday->label()"
+                        />
+
                         <flux:text class="w-24 shrink-0">{{ $weekday->label() }}</flux:text>
 
-                        <flux:input
-                            type="time"
-                            size="sm"
-                            wire:model="days.{{ $weekday->value }}.start_time"
-                            :label:sr="$weekday->label().' start time'"
-                        />
+                        @if ($days[$weekday->value]['worked'])
+                            <flux:input
+                                type="time"
+                                size="sm"
+                                wire:model="days.{{ $weekday->value }}.start_time"
+                                :label:sr="$weekday->label().' start time'"
+                            />
 
-                        <flux:text class="shrink-0">to</flux:text>
+                            <flux:text class="shrink-0">to</flux:text>
 
-                        <flux:input
-                            type="time"
-                            size="sm"
-                            wire:model="days.{{ $weekday->value }}.end_time"
-                            :label:sr="$weekday->label().' end time'"
-                        />
+                            <flux:input
+                                type="time"
+                                size="sm"
+                                wire:model="days.{{ $weekday->value }}.end_time"
+                                :label:sr="$weekday->label().' end time'"
+                            />
+                        @else
+                            <flux:text variant="subtle">Not worked</flux:text>
+                        @endif
                     </div>
 
                     <flux:error name="days.{{ $weekday->value }}.start_time" />
