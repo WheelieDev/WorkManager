@@ -180,6 +180,33 @@ class FlexiCalculator
     }
 
     /**
+     * Determine whether the pattern works the given date's weekday.
+     *
+     * This ignores bank holidays: a holiday falling on a working Monday is
+     * still a day the pattern works, it just expects no hours.
+     */
+    public function isPatternWorkingDay(DateTimeInterface $date): bool
+    {
+        $date = Carbon::parse($date)->startOfDay();
+
+        $weekday = Weekday::tryFrom($date->dayOfWeekIso);
+
+        if ($weekday === null) {
+            return false;
+        }
+
+        $pattern = $this->patternFor($date);
+
+        if ($pattern === null) {
+            // With no pattern to go on, treat the working week as normal so
+            // there is somewhere to record time before one is set up.
+            return true;
+        }
+
+        return (bool) $pattern->days->firstWhere('weekday', $weekday)?->isWorked();
+    }
+
+    /**
      * Determine whether the given date is a bank holiday.
      */
     public function isBankHoliday(DateTimeInterface $date): bool

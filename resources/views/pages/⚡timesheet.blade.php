@@ -14,6 +14,12 @@ new class extends Component {
     #[Url]
     public ?int $period = null;
 
+    /**
+     * Show every day, including ones the pattern does not work.
+     */
+    #[Url]
+    public bool $allDays = false;
+
     public ?int $editingId = null;
 
     public string $date = '';
@@ -149,6 +155,12 @@ new class extends Component {
                     'isToday' => $date->isToday(),
                     'isFuture' => $date->startOfDay()->isFuture(),
                     'bankHoliday' => $calculator->bankHolidayTitle($date),
+                    // A day is worth a box if the pattern works it, if
+                    // something was recorded on it, or if it is today.
+                    'isVisible' => $this->allDays
+                        || $calculator->isPatternWorkingDay($date)
+                        || $sessions->get($key, collect())->isNotEmpty()
+                        || $date->isToday(),
                 ];
             });
 
@@ -159,7 +171,7 @@ new class extends Component {
             return [
                 'number' => $index + 1,
                 'start' => $start,
-                'days' => $days,
+                'days' => $days->filter(fn (array $day): bool => $day['isVisible'])->values(),
                 'worked' => round($counted->sum('worked'), 2),
                 'expected' => round($counted->sum('expected'), 2),
                 'delta' => round($counted->sum('delta'), 2),
@@ -201,6 +213,8 @@ new class extends Component {
             <flux:button icon="chevron-left" size="sm" variant="subtle" wire:click="shiftPeriod(-1)" aria-label="Previous period" />
             <flux:button size="sm" variant="subtle" wire:click="thisPeriod">This period</flux:button>
             <flux:button icon="chevron-right" size="sm" variant="subtle" wire:click="shiftPeriod(1)" aria-label="Next period" />
+
+            <flux:switch wire:model.live="allDays" :label="'All days'" class="ms-2" />
         </div>
     </div>
 
@@ -244,6 +258,10 @@ new class extends Component {
                         <span class="text-xs text-zinc-400 dark:text-white/40">Not started</span>
                     @endif
                 </div>
+
+                @if ($week['days']->isEmpty())
+                    <flux:text variant="subtle" class="text-sm">No working days this week.</flux:text>
+                @endif
 
                 <div class="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
                     @foreach ($week['days'] as $day)

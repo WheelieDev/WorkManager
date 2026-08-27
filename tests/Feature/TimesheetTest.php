@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\Weekday;
+use App\Models\BankHoliday;
 use App\Models\User;
 use App\Models\WorkPattern;
 use App\Models\WorkSession;
@@ -130,6 +131,76 @@ it('does not count future days towards the week totals', function () {
 it('marks a week that has not started yet', function () {
     Livewire::test('pages::timesheet')->assertSee('Not started');
 });
+
+it('shows only the days the pattern works', function () {
+    // The pattern in beforeEach works Monday to Friday, so weekends are out.
+    Livewire::test('pages::timesheet')
+        ->assertSee('Mon')
+        ->assertSee('Fri')
+        ->assertDontSee('Sun');
+});
+
+it('drops a weekday the pattern does not work', function () {
+    WorkPattern::query()->delete();
+
+    $pattern = WorkPattern::factory()->create(['start_date' => '2026-01-01']);
+    foreach (Weekday::cases() as $weekday) {
+        $worked = $weekday !== Weekday::Friday;
+        $pattern->days()->create([
+            'weekday' => $weekday,
+            'start_time' => $worked ? '09:00' : null,
+            'end_time' => $worked ? '16:30' : null,
+        ]);
+    }
+
+    Livewire::test('pages::timesheet')
+        ->assertSee('Thu')
+        ->assertDontSee('Fri');
+});
+
+it('still shows a day that has an entry on it', function () {
+    // Saturday is not a working day, but time was recorded on it.
+    WorkSession::factory()->on('2026-08-29', '10:00', '14:00')->create();
+
+    Livewire::test('pages::timesheet')
+        ->assertSee('Sat')
+        ->assertSee('10:00');
+})->note('Otherwise recorded time would vanish from the grid.');
+
+it('always shows today', function () {
+    WorkPattern::query()->delete();
+
+    $pattern = WorkPattern::factory()->create(['start_date' => '2026-01-01']);
+    foreach (Weekday::cases() as $weekday) {
+        $pattern->days()->create(['weekday' => $weekday, 'start_time' => null, 'end_time' => null]);
+    }
+
+    // Today is Thursday 27 August and the pattern works nothing.
+    Livewire::test('pages::timesheet')->assertSee('27 Aug');
+});
+
+it('still shows a bank holiday that falls on a working day', function () {
+    BankHoliday::factory()->on('2026-08-31')->create();
+
+    Livewire::test('pages::timesheet')
+        ->assertSee('31 Aug')
+        ->assertSee('Summer bank holiday');
+})->note('It expects no hours, but it explains why the week is short.');
+
+it('shows every day when all days is switched on', function () {
+    Livewire::test('pages::timesheet')
+        ->assertDontSee('Sun')
+        ->set('allDays', true)
+        ->assertSee('Sun');
+});
+
+it('falls back to the working week with no pattern at all', function () {
+    WorkPattern::query()->delete();
+
+    Livewire::test('pages::timesheet')
+        ->assertSee('Mon')
+        ->assertDontSee('Sat');
+})->note('There has to be somewhere to record time before a pattern exists.');
 
 it('rejects an end time before the start time', function () {
     Livewire::test('pages::timesheet')
