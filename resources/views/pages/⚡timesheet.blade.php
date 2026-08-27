@@ -20,6 +20,20 @@ new class extends Component {
     #[Url]
     public bool $allDays = false;
 
+    /**
+     * Either 'days' for the editable grid, or 'weeks' for the summary.
+     */
+    #[Url]
+    public string $view = 'days';
+
+    /**
+     * Switch between the day grid and the week summary.
+     */
+    public function showView(string $view): void
+    {
+        $this->view = in_array($view, ['days', 'weeks'], strict: true) ? $view : 'days';
+    }
+
     public ?int $editingId = null;
 
     public string $date = '';
@@ -193,8 +207,18 @@ new class extends Component {
                 ->max() ?? 0.0,
         );
 
+        // The week summary is drawn against the largest week swing, so a
+        // period of small weeks still reads clearly.
+        $weekScale = max(
+            4.0,
+            $weeks->filter(fn (array $week): bool => $week['hasCountedDays'])
+                ->map(fn (array $week): float => abs($week['delta']))
+                ->max() ?? 0.0,
+        );
+
         return [
             'scale' => $scale,
+            'weekScale' => $weekScale,
             'gaugePosition' => (max(-$limit, min($limit, $balance)) + $limit) / (2 * $limit) * 100,
             'daysLeft' => max(0, (int) now()->startOfDay()->diffInDays($period->end->copy()->startOfDay(), false)),
             'weeks' => $weeks,
@@ -220,7 +244,14 @@ new class extends Component {
         </div>
 
         <div class="flex items-center gap-1">
-            <flux:switch wire:model.live="allDays" label="All days" class="me-3" />
+            <flux:button.group class="me-3">
+                <flux:button size="sm" :variant="$view === 'days' ? 'filled' : 'subtle'" wire:click="showView('days')">Days</flux:button>
+                <flux:button size="sm" :variant="$view === 'weeks' ? 'filled' : 'subtle'" wire:click="showView('weeks')">Weeks</flux:button>
+            </flux:button.group>
+
+            @if ($view === 'days')
+                <flux:switch wire:model.live="allDays" label="All days" class="me-3" />
+            @endif
             <flux:button icon="chevron-left" size="sm" variant="subtle" wire:click="shiftPeriod(-1)" aria-label="Previous period" />
             <flux:button size="sm" variant="subtle" wire:click="thisPeriod">This period</flux:button>
             <flux:button icon="chevron-right" size="sm" variant="subtle" wire:click="shiftPeriod(1)" aria-label="Next period" />
@@ -307,6 +338,77 @@ new class extends Component {
         @endif
     </section>
 
+    @if ($view === 'weeks')
+        {{-- The same scale turned on its side: one bar a week, running left or
+             right of a single zero axis down the page. --}}
+        <section class="mt-8">
+            <div class="mb-2 flex items-baseline justify-between border-b border-zinc-200 pb-1.5 text-[0.7rem] font-medium uppercase tracking-[0.16em] text-zinc-400 dark:border-zinc-700 dark:text-zinc-500">
+                <span>Week</span>
+                <span>Worked / expected &middot; delta</span>
+            </div>
+
+            <div class="flex flex-col">
+                @foreach ($weeks as $week)
+                    @php
+                        $weekFraction = $week['hasCountedDays'] && $weekScale > 0
+                            ? min(1, abs($week['delta']) / $weekScale)
+                            : 0;
+                    @endphp
+
+                    <div
+                        wire:key="weekbar-{{ $week['start']->toDateString() }}"
+                        @class([
+                            'flex items-center gap-3 border-b border-zinc-100 py-2 dark:border-zinc-800',
+                            'opacity-50' => ! $week['hasCountedDays'],
+                        ])
+                    >
+                        <div class="flex w-28 shrink-0 items-baseline gap-2">
+                            <span class="text-[0.7rem] font-medium uppercase tracking-[0.16em] {{ $week['isCurrent'] ? 'text-zinc-800 dark:text-white' : 'text-zinc-400 dark:text-zinc-500' }}">
+                                Week {{ $week['number'] }}
+                            </span>
+                            <span class="tabular text-xs text-zinc-400 dark:text-zinc-500">{{ $week['start']->format('j M') }}</span>
+                        </div>
+
+                        <div class="relative h-6 flex-1">
+                            <div class="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-zinc-300 dark:bg-zinc-600"></div>
+
+                            @if ($week['hasCountedDays'])
+                                @if ($week['delta'] != 0)
+                                    <div
+                                        class="absolute top-1/2 h-2.5 -translate-y-1/2 rounded-[1px] @if ($week['delta'] > 0) left-1/2 bg-surplus dark:bg-surplus-bright @else right-1/2 bg-deficit dark:bg-deficit-bright @endif"
+                                        style="width: {{ max(0.5, $weekFraction * 50) }}%"
+                                    ></div>
+                                @else
+                                    <div class="absolute left-1/2 top-1/2 h-2.5 w-1 -translate-x-1/2 -translate-y-1/2 rounded-[1px] bg-zinc-300 dark:bg-zinc-600"></div>
+                                @endif
+                            @endif
+
+                            @if ($week['isCurrent'])
+                                <span class="absolute right-0 top-1/2 -translate-y-1/2 rounded-sm bg-zinc-800 px-1.5 py-0.5 text-[0.65rem] font-medium uppercase tracking-wider text-white dark:bg-white dark:text-zinc-900">This week</span>
+                            @endif
+                        </div>
+
+                        <div class="flex w-40 shrink-0 items-baseline justify-end gap-2.5 text-xs">
+                            @if ($week['hasCountedDays'])
+                                <span class="tabular text-zinc-400 dark:text-zinc-500">
+                                    {{ number_format($week['worked'], 2) }} / {{ number_format($week['expected'], 2) }}
+                                </span>
+                                <span class="tabular w-14 text-right font-medium @if ($week['delta'] > 0) text-surplus dark:text-surplus-bright @elseif ($week['delta'] < 0) text-deficit dark:text-deficit-bright @else text-zinc-400 dark:text-zinc-500 @endif">
+                                    {{ $week['delta'] > 0 ? '+' : '' }}{{ number_format($week['delta'], 2) }}
+                                </span>
+                            @else
+                                <span class="text-zinc-400 dark:text-zinc-500">Not started</span>
+                            @endif
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+
+            <p class="mt-3 text-sm text-zinc-400 dark:text-zinc-500">
+                Switch to Days to add or change hours.
+            </p>
+        </section>
+    @else
     {{-- The ledger. Each day draws its deviation from a shared zero line, so a
          week reads in one pass instead of cell by cell. --}}
     <div class="mt-8 flex flex-col gap-6">
@@ -442,6 +544,7 @@ new class extends Component {
             </section>
         @endforeach
     </div>
+    @endif
 
     <flux:modal wire:model="showingForm" class="max-w-sm">
         <form wire:submit="saveSession" class="flex flex-col gap-4">

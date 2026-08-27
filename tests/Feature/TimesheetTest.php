@@ -202,6 +202,54 @@ it('falls back to the working week with no pattern at all', function () {
         ->assertDontSee('Sat');
 })->note('There has to be somewhere to record time before a pattern exists.');
 
+it('opens on the day view', function () {
+    Livewire::test('pages::timesheet')
+        ->assertSet('view', 'days')
+        ->assertSee('Mon')
+        ->assertDontSee('Switch to Days');
+});
+
+it('switches to the week summary', function () {
+    WorkSession::factory()->on('2026-08-24', '09:00', '18:00')->create();
+
+    Livewire::test('pages::timesheet')
+        ->call('showView', 'weeks')
+        ->assertSet('view', 'weeks')
+        ->assertSeeInOrder(['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5', 'Week 6'])
+        ->assertSee('Switch to Days to add or change hours.');
+});
+
+it('shows week totals and deltas in the week summary', function () {
+    WorkSession::factory()->on('2026-08-24', '09:00', '18:00')->create();
+
+    Livewire::test('pages::timesheet')
+        ->call('showView', 'weeks')
+        ->assertSee('9.00 / 30.00')
+        ->assertSee('-21.00')
+        ->assertSee('Not started');
+});
+
+it('drops the day cells in the week summary', function () {
+    WorkSession::factory()->on('2026-08-24', '09:00', '18:00')->create();
+
+    Livewire::test('pages::timesheet')
+        ->call('showView', 'weeks')
+        ->assertDontSee('09:00&ndash;18:00', escape: false);
+})->note('The summary reads the period; editing stays in the day view.');
+
+it('ignores an unknown view', function () {
+    Livewire::test('pages::timesheet')
+        ->call('showView', 'nonsense')
+        ->assertSet('view', 'days');
+});
+
+it('keeps the view in the url', function () {
+    Livewire::withUrlParams(['view' => 'weeks'])
+        ->test('pages::timesheet')
+        ->assertSet('view', 'weeks')
+        ->assertSee('Switch to Days to add or change hours.');
+});
+
 it('rejects an end time before the start time', function () {
     Livewire::test('pages::timesheet')
         ->call('addSession', '2026-08-25')
