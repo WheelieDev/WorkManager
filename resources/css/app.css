@@ -8,4 +8,22 @@
 
 @theme {
     --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+
+    /* Hours banked, and hours owed. Owed is oxide rather than alarm red:
+       being down is ordinary, not an error. */
+    --color-surplus: #0e7c6b;
+    --color-surplus-bright: #5ec5ae;
+    --color-deficit: #b4462f;
+    --color-deficit-bright: #e0866d;
+
+    --color-ledger: #f4f5f3;
+    --color-ledger-ink: #2b3a42;
+}
+
+/* Every figure on the timesheet is read as a measurement, so they line up
+   in columns and zero can never be mistaken for O. */
+.tabular {
+    font-variant-numeric: tabular-nums slashed-zero;
+    font-family: var(--font-mono);
 }

@@ -217,8 +217,20 @@ it('shows the running balance for the period', function () {
     WorkSession::factory()->on('2026-08-24', '09:00', '16:30')->create();
     WorkSession::factory()->on('2026-08-25', '09:00', '17:30')->create();
 
-    Livewire::test('pages::timesheet')->assertSee('Balance');
+    Livewire::test('pages::timesheet')
+        ->assertSee('Balance')
+        ->assertSee('hours owed');
 });
+
+it('reads the gauge against the limit in both directions', function () {
+    WorkPattern::query()->delete();
+
+    Livewire::test('pages::timesheet')
+        ->assertSee('&minus;16h', escape: false)
+        ->assertSee('+16h')
+        ->assertSee('Zero')
+        ->assertSee('in balance');
+})->note('With no pattern and no sessions the balance sits at zero.');
 
 it('loads the whole period without a query per day', function () {
     WorkSession::factory()->on('2026-08-24', '09:00', '18:00')->create();
@@ -236,8 +248,9 @@ it('warns when the balance passes the limit', function () {
     WorkSession::factory()->create(['started_at' => '2026-08-15 00:00', 'ended_at' => '2026-08-15 20:00']);
 
     Livewire::test('pages::timesheet')
-        ->assertSee('Over the 16h limit')
-        ->assertSee('Balance +20.00h');
+        ->assertSee('Over the 16h limit by')
+        ->assertSee('+20.00')
+        ->assertSee('hours banked');
 });
 
 it('requires signing in', function () {
