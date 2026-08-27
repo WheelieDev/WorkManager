@@ -88,6 +88,15 @@ it('deletes a session', function () {
     expect(WorkSession::query()->count())->toBe(0);
 });
 
+it('shows each day totals on a single compact line', function () {
+    WorkSession::factory()->on('2026-08-24', '09:00', '18:00')->create();
+
+    Livewire::test('pages::timesheet')
+        ->assertSee('9.00 / 7.50')
+        ->assertSee('+1.50')
+        ->assertDontSee('Expected</dt>', escape: false);
+});
+
 it('rejects an end time before the start time', function () {
     Livewire::test('pages::timesheet')
         ->call('addSession', '2026-08-25')
