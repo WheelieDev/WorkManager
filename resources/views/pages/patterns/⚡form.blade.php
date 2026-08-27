@@ -17,6 +17,10 @@ new class extends Component {
      */
     public array $days = [];
 
+    public string $default_start_time = '09:00';
+
+    public string $default_end_time = '17:00';
+
     /**
      * Prime the form from an existing pattern, or with sensible defaults.
      */
@@ -28,14 +32,97 @@ new class extends Component {
 
         $existing = $this->pattern?->days->keyBy(fn ($day) => $day->weekday->value);
 
+        if ($this->pattern !== null) {
+            $this->adoptDefaultsFrom($this->pattern);
+        }
+
         foreach (Weekday::cases() as $weekday) {
             $day = $existing?->get($weekday->value);
 
             $this->days[$weekday->value] = [
                 'worked' => $this->pattern === null ? true : (bool) $day?->isWorked(),
-                'start_time' => $day?->start_time?->format('H:i') ?? '09:00',
-                'end_time' => $day?->end_time?->format('H:i') ?? '17:00',
+                'start_time' => $day?->start_time?->format('H:i') ?? $this->default_start_time,
+                'end_time' => $day?->end_time?->format('H:i') ?? $this->default_end_time,
             ];
+        }
+    }
+
+    /**
+     * Take the default times from the hours the pattern already works most.
+     */
+    protected function adoptDefaultsFrom(WorkPattern $pattern): void
+    {
+        $worked = $pattern->days->filter(fn ($day): bool => $day->isWorked());
+
+        if ($worked->isEmpty()) {
+            return;
+        }
+
+        $mostCommon = $worked
+            ->countBy(fn ($day): string => $day->start_time->format('H:i').'-'.$day->end_time->format('H:i'))
+            ->sortDesc()
+            ->keys()
+            ->first();
+
+        [$this->default_start_time, $this->default_end_time] = explode('-', (string) $mostCommon);
+    }
+
+    /**
+     * Carry a changed default onto days still using the previous one.
+     *
+     * This runs before the property is written, so the current value is still
+     * the default the days were given.
+     */
+    public function updatingDefaultStartTime(string $value): void
+    {
+        $this->spreadDefault('start_time', $value, $this->default_start_time);
+    }
+
+    /**
+     * Carry a changed default onto days still using the previous one.
+     */
+    public function updatingDefaultEndTime(string $value): void
+    {
+        $this->spreadDefault('end_time', $value, $this->default_end_time);
+    }
+
+    /**
+     * Put the default times onto every day that is switched on.
+     */
+    public function applyDefaultToAll(): void
+    {
+        foreach ($this->days as $value => $day) {
+            if ($day['worked']) {
+                $this->days[$value]['start_time'] = $this->default_start_time;
+                $this->days[$value]['end_time'] = $this->default_end_time;
+            }
+        }
+    }
+
+    /**
+     * Switching a day on gives it the default times.
+     */
+    public function updatedDays(mixed $value, string $key): void
+    {
+        [$weekday, $field] = array_pad(explode('.', $key), 2, null);
+
+        if ($field !== 'worked' || ! $value) {
+            return;
+        }
+
+        $this->days[$weekday]['start_time'] = $this->default_start_time;
+        $this->days[$weekday]['end_time'] = $this->default_end_time;
+    }
+
+    /**
+     * Update days that still hold the old default, leaving customised ones be.
+     */
+    protected function spreadDefault(string $field, string $value, string $previous): void
+    {
+        foreach ($this->days as $weekday => $day) {
+            if ($day['worked'] && $day[$field] === $previous) {
+                $this->days[$weekday][$field] = $value;
+            }
         }
     }
 
@@ -78,6 +165,8 @@ new class extends Component {
                 'date',
                 Rule::unique('work_patterns', 'start_date')->ignore($this->pattern),
             ],
+            'default_start_time' => ['required', 'date_format:H:i'],
+            'default_end_time' => ['required', 'date_format:H:i', 'after:default_start_time'],
             'days' => ['required', 'array'],
             'days.*.worked' => ['boolean'],
             'days.*.start_time' => ['nullable', 'required_if:days.*.worked,true', 'date_format:H:i'],
@@ -94,6 +183,7 @@ new class extends Component {
     {
         return [
             'start_date.unique' => 'A pattern already starts on that date.',
+            'default_end_time.after' => 'The default end time must be after the default start time.',
             'days.*.start_time.required_if' => 'Enter a start time for this day.',
             'days.*.end_time.required_if' => 'Enter an end time for this day.',
             'days.*.end_time.after' => 'The end time must be after the start time.',
@@ -113,7 +203,7 @@ new class extends Component {
     <flux:heading size="xl" level="1">
         {{ $pattern ? 'Edit pattern' : 'New pattern' }}
     </flux:heading>
-    <flux:text class="mt-2">Switch on the days you work, then set the hours for each.</flux:text>
+    <flux:text class="mt-2">Set your usual hours once, then adjust any day that differs.</flux:text>
 
     <flux:separator variant="subtle" class="my-6" />
 
@@ -123,6 +213,36 @@ new class extends Component {
             <flux:description>The pattern applies from this date until a newer one starts.</flux:description>
             <flux:input type="date" wire:model="start_date" />
             <flux:error name="start_date" />
+        </flux:field>
+
+        <flux:field>
+            <flux:label>Usual hours</flux:label>
+            <flux:description>Days you switch on start with these times.</flux:description>
+
+            <div class="flex flex-wrap items-center gap-3">
+                <flux:input
+                    type="time"
+                    size="sm"
+                    wire:model.live="default_start_time"
+                    :label:sr="'Default start time'"
+                />
+
+                <flux:text class="shrink-0">to</flux:text>
+
+                <flux:input
+                    type="time"
+                    size="sm"
+                    wire:model.live="default_end_time"
+                    :label:sr="'Default end time'"
+                />
+
+                <flux:button size="sm" variant="subtle" wire:click="applyDefaultToAll">
+                    Apply to all days
+                </flux:button>
+            </div>
+
+            <flux:error name="default_start_time" />
+            <flux:error name="default_end_time" />
         </flux:field>
 
         <div class="flex flex-col gap-3">

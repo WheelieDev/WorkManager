@@ -145,6 +145,97 @@ it('swaps the time inputs for a not worked label when a day is switched off', fu
         ->assertSee('Not worked');
 });
 
+it('starts a new pattern from the default times', function () {
+    Livewire::test('pages::patterns.form')
+        ->assertSet('default_start_time', '09:00')
+        ->assertSet('default_end_time', '17:00')
+        ->assertSet('days.1.start_time', '09:00')
+        ->assertSet('days.5.end_time', '17:00');
+});
+
+it('carries a changed default onto every day still using the old one', function () {
+    Livewire::test('pages::patterns.form')
+        ->set('default_start_time', '08:30')
+        ->set('default_end_time', '16:30')
+        ->assertSet('days.1.start_time', '08:30')
+        ->assertSet('days.1.end_time', '16:30')
+        ->assertSet('days.5.start_time', '08:30')
+        ->assertSet('days.5.end_time', '16:30');
+});
+
+it('leaves a customised day alone when the default changes', function () {
+    Livewire::test('pages::patterns.form')
+        ->set('days.3.end_time', '13:00')
+        ->set('default_end_time', '16:30')
+        ->assertSet('days.1.end_time', '16:30')
+        ->assertSet('days.3.end_time', '13:00');
+})->note('A short Wednesday should survive a change to the usual hours.');
+
+it('gives a day the default times when it is switched on', function () {
+    Livewire::test('pages::patterns.form')
+        ->set('default_start_time', '08:00')
+        ->set('default_end_time', '16:00')
+        ->set('days.3.worked', false)
+        ->set('days.3.start_time', '10:00')
+        ->set('days.3.worked', true)
+        ->assertSet('days.3.start_time', '08:00')
+        ->assertSet('days.3.end_time', '16:00');
+});
+
+it('forces every worked day onto the default when asked', function () {
+    Livewire::test('pages::patterns.form')
+        ->set('days.2.start_time', '11:00')
+        ->set('days.3.end_time', '13:00')
+        ->set('days.5.worked', false)
+        ->set('default_start_time', '08:00')
+        ->set('default_end_time', '16:00')
+        ->call('applyDefaultToAll')
+        ->assertSet('days.2.start_time', '08:00')
+        ->assertSet('days.3.end_time', '16:00')
+        ->assertSet('days.5.worked', false);
+});
+
+it('takes the default from the hours an existing pattern works most', function () {
+    $pattern = WorkPattern::factory()->create(['start_date' => '2026-09-01']);
+
+    foreach (Weekday::cases() as $weekday) {
+        $pattern->days()->create([
+            'weekday' => $weekday,
+            'start_time' => '08:00',
+            'end_time' => $weekday === Weekday::Friday ? '13:00' : '16:00',
+        ]);
+    }
+
+    Livewire::test('pages::patterns.form', ['pattern' => $pattern])
+        ->assertSet('default_start_time', '08:00')
+        ->assertSet('default_end_time', '16:00')
+        ->assertSet('days.5.end_time', '13:00');
+})->note('Four days at 16:00 beat the single short Friday.');
+
+it('saves the days rather than the default times', function () {
+    Livewire::test('pages::patterns.form')
+        ->set('start_date', '2026-09-01')
+        ->set('default_start_time', '08:00')
+        ->set('default_end_time', '16:00')
+        ->set('days.3.end_time', '12:00')
+        ->call('save')
+        ->assertHasNoErrors();
+
+    $pattern = WorkPattern::query()->sole();
+
+    expect($pattern->weeklyHours())->toBe(36.0)
+        ->and($pattern->days->firstWhere('weekday', Weekday::Wednesday)->end_time->format('H:i'))->toBe('12:00');
+});
+
+it('rejects a default end time before its start time', function () {
+    Livewire::test('pages::patterns.form')
+        ->set('start_date', '2026-09-01')
+        ->set('default_start_time', '17:00')
+        ->set('default_end_time', '09:00')
+        ->call('save')
+        ->assertHasErrors('default_end_time');
+});
+
 it('allows a pattern with a single day worked', function () {
     Livewire::test('pages::patterns.form')
         ->set('start_date', '2026-09-01')
