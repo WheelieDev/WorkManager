@@ -2,6 +2,7 @@
 
 use App\Enums\Weekday;
 use App\Models\WorkPattern;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
 use Livewire\Component;
 
@@ -22,6 +23,13 @@ new class extends Component {
     public string $default_end_time = '17:00';
 
     /**
+     * The months of the year this pattern works.
+     *
+     * @var array<int, int>
+     */
+    public array $months = [];
+
+    /**
      * Prime the form from an existing pattern, or with sensible defaults.
      */
     public function mount(?WorkPattern $pattern = null): void
@@ -29,6 +37,8 @@ new class extends Component {
         $this->pattern = $pattern?->exists ? $pattern : null;
 
         $this->start_date = $this->pattern?->start_date->toDateString() ?? now()->toDateString();
+
+        $this->months = array_map('intval', $this->pattern?->months ?: range(1, 12));
 
         $existing = $this->pattern?->days->keyBy(fn ($day) => $day->weekday->value);
 
@@ -135,6 +145,7 @@ new class extends Component {
 
         $pattern = $this->pattern ?? new WorkPattern;
         $pattern->start_date = $validated['start_date'];
+        $pattern->months = array_values(array_map('intval', $validated['months']));
         $pattern->save();
 
         foreach (Weekday::cases() as $weekday) {
@@ -167,6 +178,8 @@ new class extends Component {
             ],
             'default_start_time' => ['required', 'date_format:H:i'],
             'default_end_time' => ['required', 'date_format:H:i', 'after:default_start_time'],
+            'months' => ['required', 'array', 'min:1'],
+            'months.*' => ['integer', 'between:1,12'],
             'days' => ['required', 'array'],
             'days.*.worked' => ['boolean'],
             'days.*.start_time' => ['nullable', 'required_if:days.*.worked,true', 'date_format:H:i'],
@@ -183,6 +196,8 @@ new class extends Component {
     {
         return [
             'start_date.unique' => 'A pattern already starts on that date.',
+            'months.min' => 'Choose at least one month you work.',
+            'months.required' => 'Choose at least one month you work.',
             'default_end_time.after' => 'The default end time must be after the default start time.',
             'days.*.start_time.required_if' => 'Enter a start time for this day.',
             'days.*.end_time.required_if' => 'Enter an end time for this day.',
@@ -195,7 +210,12 @@ new class extends Component {
      */
     public function with(): array
     {
-        return ['weekdays' => Weekday::cases()];
+        return [
+            'weekdays' => Weekday::cases(),
+            'allMonths' => collect(range(1, 12))->mapWithKeys(fn (int $month): array => [
+                $month => Carbon::create(null, $month)->format('M'),
+            ]),
+        ];
     }
 }; ?>
 
@@ -243,6 +263,24 @@ new class extends Component {
 
             <flux:error name="default_start_time" />
             <flux:error name="default_end_time" />
+        </flux:field>
+
+        <flux:field>
+            <flux:label>Months worked</flux:label>
+            <flux:description>Clear a month you never work, such as a summer break. Its days expect no hours.</flux:description>
+
+            <div class="grid grid-cols-4 gap-1.5 sm:grid-cols-6">
+                @foreach ($allMonths as $number => $name)
+                    <label class="cursor-pointer" wire:key="month-{{ $number }}">
+                        <input type="checkbox" class="peer sr-only" value="{{ $number }}" wire:model="months" />
+                        <span class="block rounded-md border border-zinc-200 py-1.5 text-center text-sm text-zinc-500 transition peer-checked:border-zinc-800 peer-checked:bg-zinc-800 peer-checked:text-white peer-focus-visible:ring-2 peer-focus-visible:ring-zinc-400 dark:border-zinc-700 dark:text-zinc-400 dark:peer-checked:border-white dark:peer-checked:bg-white dark:peer-checked:text-zinc-900">
+                            {{ $name }}
+                        </span>
+                    </label>
+                @endforeach
+            </div>
+
+            <flux:error name="months" />
         </flux:field>
 
         <div class="flex flex-col gap-3">

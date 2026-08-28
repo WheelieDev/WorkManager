@@ -20,7 +20,20 @@ class WorkPatternFactory extends Factory
     {
         return [
             'start_date' => fake()->unique()->dateTimeBetween('-1 year', '+1 month')->format('Y-m-d'),
+            'months' => range(1, 12),
         ];
+    }
+
+    /**
+     * Indicate that the pattern does not work the given months.
+     *
+     * @param  array<int, int>  $months
+     */
+    public function withoutMonths(array $months): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'months' => array_values(array_diff(range(1, 12), $months)),
+        ]);
     }
 
     /**

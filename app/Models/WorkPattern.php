@@ -16,11 +16,12 @@ use Illuminate\Support\Carbon;
 /**
  * @property int $id
  * @property Carbon $start_date
+ * @property array<int, int> $months
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read Collection<int, WorkPatternDay> $days
  */
-#[Fillable(['start_date'])]
+#[Fillable(['start_date', 'months'])]
 class WorkPattern extends Model
 {
     /** @use HasFactory<WorkPatternFactory> */
@@ -40,6 +41,44 @@ class WorkPattern extends Model
             get: fn (string $value): Carbon => Carbon::parse($value)->startOfDay(),
             set: fn (DateTimeInterface|string $value): string => Carbon::parse($value)->toDateString(),
         );
+    }
+
+    /**
+     * Get the attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'months' => 'array',
+        ];
+    }
+
+    /**
+     * Determine whether this pattern works the given month of the year.
+     *
+     * A pattern that names no months works all of them, so a pattern created
+     * before months existed keeps behaving as it did.
+     */
+    public function worksMonth(int $month): bool
+    {
+        $months = $this->months ?? [];
+
+        return $months === [] || in_array($month, $months, strict: false);
+    }
+
+    /**
+     * Get the months of the year this pattern does not work.
+     *
+     * @return array<int, int>
+     */
+    public function monthsOff(): array
+    {
+        return array_values(array_filter(
+            range(1, 12),
+            fn (int $month): bool => ! $this->worksMonth($month),
+        ));
     }
 
     /**

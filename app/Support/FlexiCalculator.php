@@ -54,7 +54,7 @@ class FlexiCalculator
 
         $pattern = $this->patternFor($date);
 
-        if ($pattern === null) {
+        if ($pattern === null || ! $pattern->worksMonth((int) $date->month)) {
             return 0.0;
         }
 
@@ -201,6 +201,10 @@ class FlexiCalculator
             // With no pattern to go on, treat the working week as normal so
             // there is somewhere to record time before one is set up.
             return true;
+        }
+
+        if (! $pattern->worksMonth((int) $date->month)) {
+            return false;
         }
 
         return (bool) $pattern->days->firstWhere('weekday', $weekday)?->isWorked();

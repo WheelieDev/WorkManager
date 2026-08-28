@@ -52,6 +52,7 @@ new class extends Component {
             <flux:table.columns>
                 <flux:table.column>Start date</flux:table.column>
                 <flux:table.column>Week</flux:table.column>
+                <flux:table.column>Months</flux:table.column>
                 <flux:table.column align="end">Weekly hours</flux:table.column>
                 <flux:table.column />
             </flux:table.columns>
@@ -83,6 +84,18 @@ new class extends Component {
                                     </flux:badge>
                                 @endforeach
                             </div>
+                        </flux:table.cell>
+
+                        <flux:table.cell>
+                            @php $off = $pattern->monthsOff(); @endphp
+
+                            @if ($off === [])
+                                <flux:text variant="subtle" class="text-sm">All year</flux:text>
+                            @else
+                                <flux:text variant="subtle" class="text-sm">
+                                    Off in {{ collect($off)->map(fn (int $m): string => now()->setMonth($m)->format('M'))->join(', ', ' and ') }}
+                                </flux:text>
+                            @endif
                         </flux:table.cell>
 
                         <flux:table.cell align="end" variant="strong">{{ $pattern->weeklyHours() }}</flux:table.cell>
