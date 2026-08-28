@@ -313,19 +313,25 @@ new class extends Component {
 
             <div class="flex justify-between">
                 <dt class="text-zinc-500 dark:text-zinc-400">
-                    {{ config('leave.annual_leave_days') }} days at your hours and weeks
+                    @if ($ledger->isAwarded())
+                        Annual leave, as awarded
+                    @else
+                        {{ config('leave.annual_leave_days') }} days at your hours and weeks
+                    @endif
                 </dt>
                 <dd class="tabular">{{ $hours($ledger->baseEntitlement()) }}</dd>
             </div>
 
-            <div class="flex justify-between">
-                <dt class="text-zinc-500 dark:text-zinc-400">
-                    {{ $ledger->publicHolidayAdjustment() >= 0 ? 'Public holidays left over' : 'Public holidays over the allowance' }}
-                </dt>
-                <dd class="tabular {{ $ledger->publicHolidayAdjustment() < 0 ? 'text-deficit dark:text-deficit-bright' : 'text-surplus dark:text-surplus-bright' }}">
-                    {{ $ledger->publicHolidayAdjustment() > 0 ? '+' : '' }}{{ $hours($ledger->publicHolidayAdjustment()) }}
-                </dd>
-            </div>
+            @unless ($ledger->isAwarded())
+                <div class="flex justify-between">
+                    <dt class="text-zinc-500 dark:text-zinc-400">
+                        {{ $ledger->publicHolidayAdjustment() >= 0 ? 'Public holidays left over' : 'Public holidays over the allowance' }}
+                    </dt>
+                    <dd class="tabular {{ $ledger->publicHolidayAdjustment() < 0 ? 'text-deficit dark:text-deficit-bright' : 'text-surplus dark:text-surplus-bright' }}">
+                        {{ $ledger->publicHolidayAdjustment() > 0 ? '+' : '' }}{{ $hours($ledger->publicHolidayAdjustment()) }}
+                    </dd>
+                </div>
+            @endunless
 
             <div class="flex justify-between ps-4 text-xs text-zinc-400 dark:text-zinc-500">
                 <dt>
@@ -339,6 +345,13 @@ new class extends Component {
                 <dt>less taken by bank holidays</dt>
                 <dd class="tabular">{{ $hours($ledger->publicHolidaysUsed()) }}</dd>
             </div>
+
+            @if ($ledger->isAwarded())
+                <div class="flex justify-between ps-4 text-xs text-zinc-400 dark:text-zinc-500">
+                    <dt>&mdash; already inside the awarded figure</dt>
+                    <dd class="tabular">{{ $ledger->publicHolidayAdjustment() > 0 ? '+' : '' }}{{ $hours($ledger->publicHolidayAdjustment()) }}</dd>
+                </div>
+            @endif
 
             <div class="mt-1 flex justify-between border-t border-zinc-200 pt-1 font-medium dark:border-zinc-700">
                 <dt class="text-zinc-500 dark:text-zinc-400">Entitlement</dt>
@@ -357,7 +370,11 @@ new class extends Component {
         <span class="tabular">{{ $hours($ledger->fullTimeWeeklyHours()) }}</span>h, over
         <span class="tabular">{{ $ledger->contractedWeeks() }}</span> contracted weeks of
         <span class="tabular">{{ config('leave.weeks_per_year') }}</span>.
-        @if ($ledger->publicHolidayAdjustment() > 0)
+        @if ($ledger->isAwarded())
+            Your awarded figure already settles public holidays: an allowance of
+            <span class="tabular">{{ $hours($ledger->publicHolidayEntitlement()) }}</span>h against
+            <span class="tabular">{{ $hours($ledger->publicHolidaysUsed()) }}</span>h taken by bank holidays.
+        @elseif ($ledger->publicHolidayAdjustment() > 0)
             Bank holidays miss your working days often enough to leave
             <span class="tabular">{{ $hours($ledger->publicHolidayAdjustment()) }}</span>h of the allowance
             unspent, which is added to your bookable leave.

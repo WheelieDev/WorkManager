@@ -8,6 +8,9 @@ use App\Models\User;
 use Livewire\Livewire;
 
 beforeEach(function () {
+    // These cover the calculation, so they run with no awarded figure;
+    // the awarded path has its own tests.
+    config(['leave.annual_leave_hours' => null]);
     $this->actingAs(User::factory()->create());
     $this->travelTo('2026-09-07 10:00');
 

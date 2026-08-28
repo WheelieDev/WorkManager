@@ -1,11 +1,18 @@
 <?php
 
 use App\Models\BankHoliday;
+use App\Models\LeaveCarryover;
 use App\Models\LeaveDay;
 use App\Models\WorkSession;
 use App\Support\FlexiCalculator;
 use App\Support\LeaveLedger;
 use App\Support\LeaveYear;
+
+beforeEach(function () {
+    // These cover the calculation, so they run with no awarded figure;
+    // the awarded path has its own tests.
+    config(['leave.annual_leave_hours' => null]);
+});
 
 /*
 |--------------------------------------------------------------------------
@@ -82,8 +89,30 @@ it('uses an awarded figure instead of the calculation when one is set', function
     partTimePattern();
     config(['leave.annual_leave_hours' => 84.5]);
 
-    expect((new LeaveLedger(new LeaveYear(2026)))->baseEntitlement())->toBe(84.5);
+    $ledger = new LeaveLedger(new LeaveYear(2026));
+
+    expect($ledger->baseEntitlement())->toBe(84.5)
+        ->and($ledger->isAwarded())->toBeTrue();
 });
+
+it('does not apply the public holiday adjustment to an awarded figure', function () {
+    partTimePattern();
+    config(['leave.annual_leave_hours' => 84.5]);
+
+    $ledger = new LeaveLedger(new LeaveYear(2026));
+
+    // The allowance is still worked out and shown, it is simply not added.
+    expect($ledger->publicHolidayAdjustment())->toBe(25.6)
+        ->and($ledger->annualEntitlement())->toBe(84.5);
+})->note('An awarded figure is what the employer settled on, adjustment included.');
+
+it('still adds what is carried in to an awarded figure', function () {
+    partTimePattern();
+    config(['leave.annual_leave_hours' => 84.5]);
+    LeaveCarryover::factory()->create(['leave_year' => 2026, 'hours' => 16.0]);
+
+    expect((new LeaveLedger(new LeaveYear(2026)))->annualEntitlement())->toBe(100.5);
+})->note('Carry over is a separate account from annual leave.');
 
 it('has no entitlement without a pattern', function () {
     $ledger = new LeaveLedger(new LeaveYear(2026));

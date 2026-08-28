@@ -121,17 +121,32 @@ class LeaveLedger
     }
 
     /**
-     * Get the bookable leave before any public holiday adjustment.
+     * Get the awarded annual leave account, if one has been set.
+     *
+     * An awarded figure is what the employer settled on, so it already has the
+     * public holiday adjustment inside it and must not have it applied again.
      */
-    public function baseEntitlement(): float
+    public function awardedHours(): ?float
     {
         $awarded = config('leave.annual_leave_hours');
 
-        if ($awarded !== null) {
-            return round((float) $awarded, 2);
-        }
+        return $awarded === null ? null : round((float) $awarded, 2);
+    }
 
-        return $this->daysToHours((float) config('leave.annual_leave_days'));
+    /**
+     * Determine whether the entitlement comes from an awarded figure.
+     */
+    public function isAwarded(): bool
+    {
+        return $this->awardedHours() !== null;
+    }
+
+    /**
+     * Get the annual leave account for the year, before anything carried in.
+     */
+    public function baseEntitlement(): float
+    {
+        return $this->awardedHours() ?? $this->daysToHours((float) config('leave.annual_leave_days'));
     }
 
     /**
@@ -196,7 +211,9 @@ class LeaveLedger
      */
     public function annualEntitlement(int $depth = 0): float
     {
-        return round($this->carriedIn($depth) + $this->baseEntitlement() + $this->publicHolidayAdjustment(), 2);
+        $adjustment = $this->isAwarded() ? 0.0 : $this->publicHolidayAdjustment();
+
+        return round($this->carriedIn($depth) + $this->baseEntitlement() + $adjustment, 2);
     }
 
     /**

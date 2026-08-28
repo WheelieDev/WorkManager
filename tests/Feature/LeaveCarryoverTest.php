@@ -6,6 +6,9 @@ use App\Support\LeaveLedger;
 use App\Support\LeaveYear;
 
 beforeEach(function () {
+    // These cover the calculation, so they run with no awarded figure;
+    // the awarded path has its own tests.
+    config(['leave.annual_leave_hours' => null]);
     // Running from 2024 so the earlier leave years have a pattern behind them.
     partTimePattern('2024-01-01');
 });

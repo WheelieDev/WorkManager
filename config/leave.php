@@ -52,16 +52,16 @@ return [
     | Bookable leave for a full leave year, as full time days, pro-rata'd by
     | the hours the pattern works and the weeks under contract.
     |
-    | Set 'annual_leave_hours' to a figure to use that instead of the
-    | calculation, for when the awarded number is known and should be trusted
-    | over anything derived. Any public holiday surplus is added on top of
-    | whichever figure is used.
+    | Set 'annual_leave_hours' to the awarded figure to use that instead of the
+    | calculation. An awarded figure is what the employer settled on, so the
+    | public holiday adjustment is already inside it and is not applied again;
+    | it is still shown, so the working can be checked.
     |
     */
 
     'annual_leave_days' => 27,
 
-    'annual_leave_hours' => null,
+    'annual_leave_hours' => 84.5,
 
     /*
     |--------------------------------------------------------------------------

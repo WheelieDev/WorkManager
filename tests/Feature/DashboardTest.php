@@ -9,6 +9,9 @@ use App\Models\WorkSession;
 use Livewire\Livewire;
 
 beforeEach(function () {
+    // These cover the calculation, so they run with no awarded figure;
+    // the awarded path has its own tests.
+    config(['leave.annual_leave_hours' => null]);
     // These cover the balance mechanics themselves, so they run with no
     // tracking start; the start date has its own tests.
     config(['flexi.tracking_starts' => null]);
