@@ -178,10 +178,22 @@ it('ignores leave booked in another leave year', function () {
 it('knows when more leave has been used than awarded', function () {
     partTimePattern();
 
-    LeaveDay::factory()->on('2026-09-07', 4.0)->create();
-    LeaveDay::factory()->create(['date' => '2026-09-08', 'hours' => 120.0]);
+    // Entitlement is 104.81h, or about 26 working days at four hours.
+    $date = now()->parse('2026-09-07');
 
-    expect((new LeaveLedger(new LeaveYear(2026)))->isOverdrawn())->toBeTrue();
+    for ($booked = 0; $booked < 30; $date = $date->addDay()) {
+        if ($date->dayOfWeekIso >= 5) {
+            continue;
+        }
+
+        LeaveDay::factory()->on($date->toDateString(), 4.0)->create();
+        $booked++;
+    }
+
+    $ledger = new LeaveLedger(new LeaveYear(2026));
+
+    expect($ledger->annualBooked())->toBe(120.0)
+        ->and($ledger->isOverdrawn())->toBeTrue();
 });
 
 /*
@@ -235,3 +247,75 @@ it('does not cover a day the pattern never asked for', function () {
 
     expect((new FlexiCalculator)->coveredHours(now()->parse('2026-09-11')))->toBe(0.0);
 });
+
+/*
+|--------------------------------------------------------------------------
+| Nothing counted twice
+|--------------------------------------------------------------------------
+*/
+
+it('does not charge for leave sitting on a bank holiday', function () {
+    partTimePattern();
+    BankHoliday::factory()->on('2026-12-28', 'Boxing Day')->create();
+    LeaveDay::factory()->on('2026-12-28', 4.0)->create();
+
+    $ledger = new LeaveLedger(new LeaveYear(2026));
+
+    expect($ledger->publicHolidaysUsed())->toBe(4.0)
+        ->and($ledger->annualBooked())->toBe(0.0)
+        ->and($ledger->annualRemaining())->toBe($ledger->annualEntitlement());
+})->note('The day is already paid for by the public holiday allowance.');
+
+it('says why a booking on a bank holiday costs nothing', function () {
+    partTimePattern();
+    BankHoliday::factory()->on('2026-12-28')->create();
+    $leave = LeaveDay::factory()->on('2026-12-28', 4.0)->create();
+
+    expect((new LeaveLedger(new LeaveYear(2026)))->bookingNote($leave))->toBe('already a bank holiday');
+});
+
+it('never charges more than a day is worth', function () {
+    partTimePattern();
+    $leave = LeaveDay::factory()->on('2026-09-08', 9.0)->create();
+
+    $ledger = new LeaveLedger(new LeaveYear(2026));
+
+    expect($ledger->effectiveHours($leave))->toBe(4.0)
+        ->and($ledger->annualBooked())->toBe(4.0)
+        ->and($ledger->bookingNote($leave))->toBe('more than the day works');
+});
+
+it('charges nothing for leave on a day never worked', function () {
+    partTimePattern();
+    $leave = LeaveDay::factory()->on('2026-09-11', 4.0)->create(); // a Friday
+
+    $ledger = new LeaveLedger(new LeaveYear(2026));
+
+    expect($ledger->annualBooked())->toBe(0.0)
+        ->and($ledger->bookingNote($leave))->toBe('not a working day');
+});
+
+it('counts an ordinary booking in full and says nothing about it', function () {
+    partTimePattern();
+    $leave = LeaveDay::factory()->on('2026-09-08', 4.0)->create();
+
+    $ledger = new LeaveLedger(new LeaveYear(2026));
+
+    expect($ledger->annualBooked())->toBe(4.0)
+        ->and($ledger->bookingNote($leave))->toBeNull();
+});
+
+it('counts a bank holiday once, not once per pot', function () {
+    partTimePattern();
+    BankHoliday::factory()->on('2026-12-28')->create();
+
+    $ledger = new LeaveLedger(new LeaveYear(2026));
+    $calculator = new FlexiCalculator;
+    $date = now()->parse('2026-12-28');
+
+    // Charged to the public holiday allowance, and nowhere else.
+    expect($ledger->publicHolidaysUsed())->toBe(4.0)
+        ->and($ledger->annualBooked())->toBe(0.0)
+        ->and($calculator->expectedHours($date))->toBe(0.0)
+        ->and($calculator->deltaFor($date))->toBe(0.0);
+})->note('One day off, one deduction.');

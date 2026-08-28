@@ -226,10 +226,44 @@ class LeaveLedger
 
     /**
      * Get the hours of leave booked in this year.
+     *
+     * Only hours that actually buy time off count. Leave sitting on a bank
+     * holiday buys nothing, because the day is already paid for, and leave
+     * beyond what a day works cannot buy more than the day.
      */
     public function annualBooked(): float
     {
-        return round($this->booked()->sum('hours'), 2);
+        return round($this->booked()->sum(fn (LeaveDay $leave): float => $this->effectiveHours($leave)), 2);
+    }
+
+    /**
+     * Get the hours a booking is actually worth.
+     */
+    public function effectiveHours(LeaveDay $leave): float
+    {
+        if ($this->calculator->isBankHoliday($leave->date)) {
+            return 0.0;
+        }
+
+        return round(min($leave->hours, $this->calculator->patternHours($leave->date)), 2);
+    }
+
+    /**
+     * Explain why a booking is not costing what it says, if it is not.
+     */
+    public function bookingNote(LeaveDay $leave): ?string
+    {
+        if ($this->calculator->isBankHoliday($leave->date)) {
+            return 'already a bank holiday';
+        }
+
+        $pattern = $this->calculator->patternHours($leave->date);
+
+        if ($pattern <= 0) {
+            return 'not a working day';
+        }
+
+        return $leave->hours > $pattern ? 'more than the day works' : null;
     }
 
     /**

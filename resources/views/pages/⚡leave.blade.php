@@ -343,7 +343,13 @@ new class extends Component {
                 </button>
 
                 <div class="flex items-center gap-3">
-                    <span class="tabular text-zinc-700 dark:text-zinc-200">{{ $hours($leave->hours) }}h</span>
+                    @if ($ledger->bookingNote($leave))
+                        <span class="text-xs text-zinc-400 dark:text-zinc-500">{{ $ledger->bookingNote($leave) }}</span>
+                        <span class="tabular text-zinc-400 line-through dark:text-zinc-500">{{ $hours($leave->hours) }}h</span>
+                        <span class="tabular text-zinc-700 dark:text-zinc-200">{{ $hours($ledger->effectiveHours($leave)) }}h</span>
+                    @else
+                        <span class="tabular text-zinc-700 dark:text-zinc-200">{{ $hours($leave->hours) }}h</span>
+                    @endif
                     <button type="button"
                             class="text-zinc-300 opacity-0 transition hover:text-deficit focus-visible:opacity-100 group-hover/leave:opacity-100 dark:text-zinc-600"
                             wire:click="deleteLeave({{ $leave->id }})"
