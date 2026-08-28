@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\BankHoliday;
 use App\Models\LeaveDay;
+use App\Models\LeaveRequest;
 use App\Models\WorkPattern;
 use DateTimeInterface;
 use Illuminate\Support\Collection;
@@ -247,6 +248,58 @@ class LeaveLedger
         }
 
         return round(min($leave->hours, $this->calculator->patternHours($leave->date)), 2);
+    }
+
+    /**
+     * Get the leave requests touching this year, newest first.
+     *
+     * @return Collection<int, LeaveRequest>
+     */
+    public function requests(): Collection
+    {
+        return LeaveRequest::query()
+            ->with('days')
+            ->overlapping($this->year->start, $this->year->end)
+            ->orderByDesc('starts_on')
+            ->get();
+    }
+
+    /**
+     * Get the hours a request actually costs, counting only days in this year.
+     */
+    public function requestHours(LeaveRequest $request): float
+    {
+        return round(
+            $request->days
+                ->filter(fn (LeaveDay $day): bool => $this->year->contains($day->date))
+                ->sum(fn (LeaveDay $day): float => $this->effectiveHours($day)),
+            2,
+        );
+    }
+
+    /**
+     * Get the days a request books within this year.
+     */
+    public function requestDays(LeaveRequest $request): int
+    {
+        return $request->days
+            ->filter(fn (LeaveDay $day): bool => $this->year->contains($day->date))
+            ->count();
+    }
+
+    /**
+     * Count the bank holidays falling inside a request's dates.
+     *
+     * These are days off the request did not have to pay for.
+     */
+    public function requestPublicHolidays(LeaveRequest $request): int
+    {
+        return BankHoliday::query()
+            ->whereBetween('date', [
+                $request->starts_on->toDateString(),
+                $request->ends_on->toDateString(),
+            ])
+            ->count();
     }
 
     /**

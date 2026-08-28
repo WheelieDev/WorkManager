@@ -2,6 +2,7 @@
 
 use App\Enums\LeaveType;
 use App\Models\LeaveDay;
+use App\Models\LeaveRequest;
 use App\Support\FlexiCalculator;
 use App\Support\LeaveLedger;
 use App\Support\LeaveYear;
@@ -80,16 +81,16 @@ new class extends Component {
     }
 
     /**
-     * Open the form to change a booking.
+     * Open the form to change a request.
      */
-    public function editLeave(LeaveDay $leave): void
+    public function editLeave(LeaveRequest $request): void
     {
         $this->resetValidation();
 
-        $this->editingId = $leave->id;
-        $this->from = $leave->date->toDateString();
-        $this->to = $this->from;
-        $this->hours = (string) $leave->hours;
+        $this->editingId = $request->id;
+        $this->from = $request->starts_on->toDateString();
+        $this->to = $request->ends_on->toDateString();
+        $this->hours = $request->isSingleDay() ? (string) ($request->days->first()?->hours ?? '') : '';
         $this->showingForm = true;
     }
 
@@ -130,7 +131,7 @@ new class extends Component {
     }
 
     /**
-     * Save the booking, or the whole range of them.
+     * Save the request and the days it books.
      */
     public function saveLeave(): void
     {
@@ -151,37 +152,45 @@ new class extends Component {
             return;
         }
 
-        // A single day may be booked as part of a day; a range is taken whole.
+        // A single day may be taken in part; a range is taken whole.
         $partDay = $days->count() === 1 && $this->hours !== '' ? round((float) $this->hours, 2) : null;
 
+        $request = $this->editingId !== null
+            ? LeaveRequest::query()->findOrFail($this->editingId)
+            : new LeaveRequest;
+
+        $request->starts_on = $this->from;
+        $request->ends_on = $this->to ?: $this->from;
+        $request->save();
+
+        $request->days()->delete();
+
+        // A day belongs to one request, so rebooking it moves it across.
+        LeaveDay::query()
+            ->whereIn('date', $days->map(fn (array $day): string => $day['date']->toDateString()))
+            ->delete();
+
         foreach ($days as $day) {
-            $hours = $partDay !== null ? min($partDay, $day['hours']) : $day['hours'];
-
-            if ($this->editingId !== null) {
-                LeaveDay::query()->findOrFail($this->editingId)->update([
-                    'date' => $day['date']->toDateString(),
-                    'hours' => $hours,
-                ]);
-
-                continue;
-            }
-
-            LeaveDay::query()->updateOrCreate(
-                ['date' => $day['date']->toDateString(), 'type' => LeaveType::Annual],
-                ['hours' => $hours],
-            );
+            $request->days()->create([
+                'date' => $day['date']->toDateString(),
+                'type' => LeaveType::Annual,
+                'hours' => $partDay !== null ? min($partDay, $day['hours']) : $day['hours'],
+            ]);
         }
+
+        // Requests that lost every day to this one are no longer requests.
+        LeaveRequest::query()->whereDoesntHave('days')->delete();
 
         $this->showingForm = false;
         $this->year = LeaveYear::forDate($days->first()['date'])->year;
     }
 
     /**
-     * Cancel a booking.
+     * Cancel a request and everything it booked.
      */
-    public function deleteLeave(LeaveDay $leave): void
+    public function deleteLeave(LeaveRequest $request): void
     {
-        $leave->delete();
+        $request->delete();
     }
 
     /**
@@ -199,7 +208,7 @@ new class extends Component {
             'chosenHours' => round($days->sum('hours'), 2),
             'leaveYear' => $year,
             'ledger' => $ledger,
-            'bookings' => $ledger->booked(),
+            'requests' => $ledger->requests(),
         ];
     }
 }; ?>
@@ -298,21 +307,21 @@ new class extends Component {
         @endif
     </p>
 
-    {{-- Booked leave. --}}
+    {{-- Booked leave, as it was asked for. --}}
     <section class="mt-8">
         <div class="flex items-baseline justify-between">
             <h2 class="text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">
                 Booked leave
             </h2>
 
-            @if ($bookings->isNotEmpty())
+            @if ($requests->isNotEmpty())
                 <flux:text variant="subtle" class="text-sm">
-                    {{ $bookings->count() }} {{ Str::plural('day', $bookings->count()) }}
+                    {{ $requests->count() }} {{ Str::plural('request', $requests->count()) }}
                 </flux:text>
             @endif
         </div>
 
-        @if ($bookings->isEmpty())
+        @if ($requests->isEmpty())
             <p class="mt-2 border-t border-zinc-200 pt-3 text-sm text-zinc-400 dark:border-zinc-700 dark:text-zinc-500">
                 No leave booked this year. Choose a first and last day and the hours come from your pattern.
             </p>
@@ -321,54 +330,46 @@ new class extends Component {
                 <table class="w-full text-sm">
                     <thead>
                         <tr class="border-b border-zinc-200 text-[0.7rem] uppercase tracking-[0.12em] text-zinc-400 dark:border-zinc-700 dark:text-zinc-500">
-                            <th class="py-1.5 text-start font-medium">Date</th>
-                            <th class="py-1.5 text-start font-medium">Taken</th>
+                            <th class="py-1.5 text-start font-medium">Dates</th>
+                            <th class="py-1.5 text-end font-medium">Days</th>
+                            <th class="py-1.5 text-end font-medium">Bank holidays</th>
                             <th class="py-1.5 text-end font-medium">Hours</th>
                             <th class="w-8"><span class="sr-only">Cancel</span></th>
                         </tr>
                     </thead>
 
                     <tbody>
-                        @foreach ($bookings as $leave)
+                        @foreach ($requests as $request)
                             @php
-                                $note = $ledger->bookingNote($leave);
-                                $effective = $ledger->effectiveHours($leave);
-                                $pattern = $ledger->patternHours($leave->date);
+                                $holidays = $ledger->requestPublicHolidays($request);
                             @endphp
 
-                            <tr class="group/leave border-b border-zinc-100 dark:border-zinc-800" wire:key="leave-{{ $leave->id }}">
+                            <tr class="group/req border-b border-zinc-100 dark:border-zinc-800" wire:key="request-{{ $request->id }}">
                                 <td class="py-1.5">
                                     <button type="button" class="tabular text-start text-zinc-700 hover:underline dark:text-zinc-200"
-                                            wire:click="editLeave({{ $leave->id }})">
-                                        {{ $leave->date->format('D j M Y') }}
+                                            wire:click="editLeave({{ $request->id }})">
+                                        {{ $request->label() }}
                                     </button>
                                 </td>
 
-                                <td class="py-1.5 text-zinc-500 dark:text-zinc-400">
-                                    @if ($note)
-                                        {{ $note }}
-                                    @elseif ($pattern > 0 && $effective >= $pattern)
-                                        Full day
-                                    @else
-                                        Part day
-                                    @endif
+                                <td class="tabular py-1.5 text-end text-zinc-500 dark:text-zinc-400">
+                                    {{ $ledger->requestDays($request) }}
                                 </td>
 
-                                <td class="py-1.5 text-end">
-                                    @if ($note)
-                                        <span class="tabular text-zinc-400 line-through dark:text-zinc-500">{{ $hours($leave->hours) }}</span>
-                                        <span class="tabular ms-1 text-zinc-700 dark:text-zinc-200">{{ $hours($effective) }}</span>
-                                    @else
-                                        <span class="tabular text-zinc-700 dark:text-zinc-200">{{ $hours($effective) }}</span>
-                                    @endif
+                                <td class="tabular py-1.5 text-end {{ $holidays > 0 ? 'text-zinc-700 dark:text-zinc-200' : 'text-zinc-300 dark:text-zinc-600' }}">
+                                    {{ $holidays > 0 ? $holidays : '—' }}
+                                </td>
+
+                                <td class="tabular py-1.5 text-end text-zinc-700 dark:text-zinc-200">
+                                    {{ $hours($ledger->requestHours($request)) }}
                                 </td>
 
                                 <td class="py-1.5 text-end">
                                     <button type="button"
-                                            class="text-zinc-300 opacity-0 transition hover:text-deficit focus-visible:opacity-100 group-hover/leave:opacity-100 dark:text-zinc-600"
-                                            wire:click="deleteLeave({{ $leave->id }})"
+                                            class="text-zinc-300 opacity-0 transition hover:text-deficit focus-visible:opacity-100 group-hover/req:opacity-100 dark:text-zinc-600"
+                                            wire:click="deleteLeave({{ $request->id }})"
                                             wire:confirm="Cancel this leave?"
-                                            aria-label="Cancel leave on {{ $leave->date->format('j F Y') }}">&times;</button>
+                                            aria-label="Cancel leave from {{ $request->starts_on->format('j F Y') }}">&times;</button>
                                 </td>
                             </tr>
                         @endforeach
@@ -376,7 +377,9 @@ new class extends Component {
 
                     <tfoot>
                         <tr class="font-medium">
-                            <td class="py-1.5" colspan="2">Total</td>
+                            <td class="py-1.5">Total</td>
+                            <td class="tabular py-1.5 text-end">{{ $requests->sum(fn ($r) => $ledger->requestDays($r)) }}</td>
+                            <td class="tabular py-1.5 text-end">{{ $requests->sum(fn ($r) => $ledger->requestPublicHolidays($r)) ?: '—' }}</td>
                             <td class="tabular py-1.5 text-end">{{ $hours($ledger->annualBooked()) }}</td>
                             <td></td>
                         </tr>

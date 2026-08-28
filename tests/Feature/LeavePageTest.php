@@ -2,6 +2,7 @@
 
 use App\Models\BankHoliday;
 use App\Models\LeaveDay;
+use App\Models\LeaveRequest;
 use App\Models\User;
 use Livewire\Livewire;
 
@@ -171,37 +172,58 @@ it('refuses a range that ends before it starts', function () {
         ->assertHasErrors('to');
 });
 
-it('changes a booking', function () {
-    $leave = LeaveDay::factory()->on('2026-09-08', 4.0)->create();
+it('changes a request', function () {
+    Livewire::test('pages::leave')->call('bookLeave', '2026-09-08')->call('saveLeave');
+
+    $request = LeaveRequest::query()->sole();
 
     Livewire::test('pages::leave')
-        ->call('editLeave', $leave)
+        ->call('editLeave', $request)
         ->assertSet('from', '2026-09-08')
         ->assertSet('hours', '4')
         ->set('hours', '2')
         ->call('saveLeave')
         ->assertHasNoErrors();
 
-    expect($leave->fresh()->hours)->toBe(2.0)
-        ->and(LeaveDay::query()->count())->toBe(1);
+    expect(LeaveDay::query()->sole()->hours)->toBe(2.0)
+        ->and(LeaveRequest::query()->count())->toBe(1);
 });
 
-it('cancels a booking', function () {
-    $leave = LeaveDay::factory()->on('2026-09-08', 4.0)->create();
+it('cancels a request and every day it booked', function () {
+    Livewire::test('pages::leave')
+        ->call('bookLeave', '2026-09-07')
+        ->set('to', '2026-09-10')
+        ->call('saveLeave');
+
+    expect(LeaveDay::query()->count())->toBe(4);
 
     Livewire::test('pages::leave')
-        ->call('deleteLeave', $leave)
+        ->call('deleteLeave', LeaveRequest::query()->sole())
         ->assertHasNoErrors();
 
-    expect(LeaveDay::query()->count())->toBe(0);
+    expect(LeaveDay::query()->count())->toBe(0)
+        ->and(LeaveRequest::query()->count())->toBe(0);
 });
 
-it('does not book the same day twice', function () {
+it('moves a day to the newer request rather than booking it twice', function () {
     Livewire::test('pages::leave')->call('bookLeave', '2026-09-08')->call('saveLeave');
     Livewire::test('pages::leave')->call('bookLeave', '2026-09-08')->set('hours', '2')->call('saveLeave');
 
     expect(LeaveDay::query()->count())->toBe(1)
-        ->and(LeaveDay::query()->sole()->hours)->toBe(2.0);
+        ->and(LeaveDay::query()->sole()->hours)->toBe(2.0)
+        ->and(LeaveRequest::query()->count())->toBe(1);
+})->note('The emptied request is cleared away with its last day.');
+
+it('keeps the days a newer request did not take', function () {
+    Livewire::test('pages::leave')
+        ->call('bookLeave', '2026-09-07')
+        ->set('to', '2026-09-10')
+        ->call('saveLeave');
+
+    Livewire::test('pages::leave')->call('bookLeave', '2026-09-08')->set('hours', '2')->call('saveLeave');
+
+    expect(LeaveDay::query()->count())->toBe(4)
+        ->and(LeaveRequest::query()->count())->toBe(2);
 });
 
 it('rejects a booking of nothing', function () {
@@ -249,32 +271,39 @@ it('requires signing in', function () {
 |--------------------------------------------------------------------------
 */
 
-it('tabulates the booked leave', function () {
-    LeaveDay::factory()->on('2026-09-07', 4.0)->create();
-    LeaveDay::factory()->on('2026-09-08', 2.0)->create();
+it('tabulates leave one row per request', function () {
+    Livewire::test('pages::leave')->call('bookLeave', '2026-09-07')->set('to', '2026-09-10')->call('saveLeave');
+    Livewire::test('pages::leave')->call('bookLeave', '2026-09-21')->call('saveLeave');
 
     Livewire::test('pages::leave')
         ->assertSee('Booked leave')
-        ->assertSeeInOrder(['Date', 'Taken', 'Hours'])
-        ->assertSeeInOrder(['Mon 7 Sep 2026', 'Full day', 'Tue 8 Sep 2026', 'Part day'])
-        ->assertSee('2 days')
+        ->assertSeeInOrder(['Dates', 'Days', 'Bank holidays', 'Hours'])
+        ->assertSee('Mon 7 Sep to Thu 10 Sep 2026')
+        ->assertSee('Mon 21 Sep 2026')
+        ->assertSee('2 requests')
         ->assertSee('Total');
-});
+})->note('A week off is one request, not four rows.');
 
-it('totals the table by what the leave actually costs', function () {
-    LeaveDay::factory()->on('2026-09-07', 4.0)->create();
-    LeaveDay::factory()->on('2026-09-08', 2.0)->create();
-
-    Livewire::test('pages::leave')->assertSee('6.00');
-});
-
-it('marks a booking that costs nothing in the table', function () {
-    BankHoliday::factory()->on('2026-12-28')->create();
-    LeaveDay::factory()->on('2026-12-28', 4.0)->create();
+it('counts the bank holidays inside a request', function () {
+    BankHoliday::factory()->on('2026-12-28', 'Boxing Day')->create();
 
     Livewire::test('pages::leave')
-        ->assertSee('already a bank holiday')
-        ->assertSee('0.00');
+        ->call('bookLeave', '2026-12-28')
+        ->set('to', '2026-12-31')
+        ->call('saveLeave');
+
+    // Three days booked, and the bank holiday inside them cost nothing.
+    Livewire::test('pages::leave')
+        ->assertSee('Mon 28 Dec to Thu 31 Dec 2026')
+        ->assertSee('12.00');
+});
+
+it('totals the requests by days, holidays and hours', function () {
+    Livewire::test('pages::leave')->call('bookLeave', '2026-09-07')->set('to', '2026-09-10')->call('saveLeave');
+
+    Livewire::test('pages::leave')
+        ->assertSee('16.00')
+        ->assertSee('Total');
 });
 
 it('invites a first booking when the table is empty', function () {

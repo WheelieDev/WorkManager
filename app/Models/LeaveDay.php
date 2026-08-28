@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
 /**
@@ -19,8 +20,9 @@ use Illuminate\Support\Carbon;
  * @property Carbon $date
  * @property LeaveType $type
  * @property float $hours
+ * @property int|null $leave_request_id
  */
-#[Fillable(['date', 'type', 'hours'])]
+#[Fillable(['date', 'type', 'hours', 'leave_request_id'])]
 class LeaveDay extends Model
 {
     /** @use HasFactory<LeaveDayFactory> */
@@ -52,6 +54,16 @@ class LeaveDay extends Model
             get: fn (string $value): Carbon => Carbon::parse($value)->startOfDay(),
             set: fn (DateTimeInterface|string $value): string => Carbon::parse($value)->toDateString(),
         );
+    }
+
+    /**
+     * Get the request this day was booked under.
+     *
+     * @return BelongsTo<LeaveRequest, $this>
+     */
+    public function leaveRequest(): BelongsTo
+    {
+        return $this->belongsTo(LeaveRequest::class);
     }
 
     /**
