@@ -82,7 +82,8 @@ it('gives the sandbox its own account and a period to look at', function () {
 });
 
 it('seeds days both over and under the pattern', function () {
-    $this->travelTo('2026-08-27');
+    // After tracking has begun, so the seeded days actually count.
+    $this->travelTo('2026-09-16');
     $this->seed(SandboxSeeder::class);
 
     $calculator = new FlexiCalculator;

@@ -7,6 +7,12 @@ use App\Models\WorkSession;
 use App\Support\FlexiCalculator;
 use Livewire\Livewire;
 
+beforeEach(function () {
+    // These cover the balance mechanics themselves, so they run with no
+    // tracking start; the start date has its own tests.
+    config(['flexi.tracking_starts' => null]);
+});
+
 /**
  * A Monday to Friday pattern that skips the given months.
  *

@@ -9,6 +9,9 @@ use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
 beforeEach(function () {
+    // These cover the balance mechanics themselves, so they run with no
+    // tracking start; the start date has its own tests.
+    config(['flexi.tracking_starts' => null]);
     $this->actingAs(User::factory()->create());
     $this->travelTo('2026-08-27 10:00');
 

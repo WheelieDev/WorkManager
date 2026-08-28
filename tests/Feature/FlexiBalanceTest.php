@@ -6,6 +6,12 @@ use App\Models\WorkSession;
 use App\Support\FlexiCalculator;
 use App\Support\FlexiPeriod;
 
+beforeEach(function () {
+    // These cover the balance mechanics themselves, so they run with no
+    // tracking start; the start date has its own tests.
+    config(['flexi.tracking_starts' => null]);
+});
+
 /**
  * Give every weekday in every period a 7.5 hour expectation.
  */

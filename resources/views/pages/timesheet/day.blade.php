@@ -14,6 +14,10 @@
             @if ($day['bankHoliday'])
                 <span class="text-xs text-ledger-ink/70 dark:text-zinc-400">{{ $day['bankHoliday'] }}</span>
             @endif
+
+            @unless ($day['isTracked'])
+                <span class="text-xs text-zinc-400 dark:text-zinc-500">Before tracking began</span>
+            @endunless
         </div>
 
         <div class="flex items-baseline gap-3 text-sm">
@@ -21,7 +25,7 @@
                 {{ number_format($day['worked'], 2) }} / {{ number_format($day['expected'], 2) }}
             </span>
 
-            @if ($day['isFuture'])
+            @if ($day['isFuture'] || ! $day['isTracked'])
                 <span class="text-zinc-300 dark:text-zinc-600">&mdash;</span>
             @else
                 <span class="tabular font-medium {{ $tone($day['delta']) }}">{{ $signed($day['delta']) }}</span>
@@ -30,7 +34,7 @@
     </div>
 
     {{-- The day's deviation, on the same scale the other views use. --}}
-    @unless ($day['isFuture'])
+    @unless ($day['isFuture'] || ! $day['isTracked'])
         <div class="relative mt-3 h-5">
             <div class="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-zinc-300 dark:bg-zinc-600"></div>
 

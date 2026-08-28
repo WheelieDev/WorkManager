@@ -52,6 +52,26 @@ class FlexiPeriod
     }
 
     /**
+     * Get the first date the balance counts, if tracking has a start.
+     */
+    public static function trackingStart(): ?Carbon
+    {
+        $start = config('flexi.tracking_starts');
+
+        return $start === null ? null : Carbon::parse($start)->startOfDay();
+    }
+
+    /**
+     * Determine whether the balance counts the given date.
+     */
+    public static function isTracked(DateTimeInterface $date): bool
+    {
+        $start = self::trackingStart();
+
+        return $start === null || Carbon::parse($date)->startOfDay()->greaterThanOrEqualTo($start);
+    }
+
+    /**
      * Get the period containing the given date.
      */
     public static function forDate(DateTimeInterface $date): self
@@ -107,6 +127,36 @@ class FlexiPeriod
     public function hasClosed(): bool
     {
         return now()->greaterThan($this->end);
+    }
+
+    /**
+     * Get the first date in this period that the balance counts.
+     *
+     * Null when the whole period falls before tracking began.
+     */
+    public function countedFrom(): ?Carbon
+    {
+        $start = self::trackingStart();
+
+        if ($start === null) {
+            return $this->start->copy();
+        }
+
+        if ($start->greaterThan($this->end)) {
+            return null;
+        }
+
+        return $start->greaterThan($this->start) ? $start->copy() : $this->start->copy();
+    }
+
+    /**
+     * Determine whether tracking begins part way through this period.
+     */
+    public function startsPartWayThrough(): bool
+    {
+        $start = self::trackingStart();
+
+        return $start !== null && $start->betweenIncluded($this->start->copy()->addDay(), $this->end);
     }
 
     /**

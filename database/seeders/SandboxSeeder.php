@@ -39,7 +39,16 @@ class SandboxSeeder extends Seeder
             ]);
         }
 
-        $start = FlexiPeriod::current()->start;
+        // Start where the balance starts counting, so the seeded days show up
+        // as surplus and deficit rather than as nothing. If tracking has not
+        // begun yet, fall back to the period start so there is still something
+        // on screen, even though none of it counts.
+        $period = FlexiPeriod::current();
+        $start = $period->countedFrom() ?? $period->start;
+
+        if ($start->isFuture()) {
+            $start = $period->start;
+        }
 
         // A mixture of long days, short days and days off, so the ledger shows
         // bars either side of the line rather than one flat colour.

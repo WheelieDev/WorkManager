@@ -51,6 +51,22 @@ return [
     |
     */
 
+    /*
+    |--------------------------------------------------------------------------
+    | Tracking Start
+    |--------------------------------------------------------------------------
+    |
+    | The first date the balance counts. Days before it are shown, and hours
+    | may still be recorded on them, but they neither owe nor bank anything,
+    | so time before you started keeping a timesheet is not held against you.
+    | The periods and dates themselves still exist, ready for annual leave.
+    |
+    | Set to null to count everything.
+    |
+    */
+
+    'tracking_starts' => '2026-09-01',
+
     'bank_holidays_url' => 'https://www.gov.uk/bank-holidays.json',
 
     'bank_holidays_division' => 'england-and-wales',

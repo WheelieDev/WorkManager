@@ -113,7 +113,19 @@ class FlexiCalculator
      */
     public function deltaFor(DateTimeInterface $date): float
     {
+        if (! $this->isTracked($date)) {
+            return 0.0;
+        }
+
         return round($this->workedHours($date) - $this->expectedHours($date), 2);
+    }
+
+    /**
+     * Determine whether the balance counts the given date.
+     */
+    public function isTracked(DateTimeInterface $date): bool
+    {
+        return FlexiPeriod::isTracked($date);
     }
 
     /**
@@ -124,16 +136,17 @@ class FlexiCalculator
     public function accruedIn(FlexiPeriod $period): float
     {
         $through = $period->countedThrough();
+        $from = $period->countedFrom();
 
-        if ($through === null) {
+        if ($through === null || $from === null || $from->greaterThan($through)) {
             return 0.0;
         }
 
-        $this->warmRange($period->start, $through);
+        $this->warmRange($from, $through);
 
         return round(
             $period->dates()
-                ->filter(fn (Carbon $date): bool => $date->lessThanOrEqualTo($through))
+                ->filter(fn (Carbon $date): bool => $date->betweenIncluded($from, $through))
                 ->sum(fn (Carbon $date): float => $this->deltaFor($date)),
             2,
         );
@@ -188,6 +201,10 @@ class FlexiCalculator
     public function isPatternWorkingDay(DateTimeInterface $date): bool
     {
         $date = Carbon::parse($date)->startOfDay();
+
+        if (! $this->isTracked($date)) {
+            return false;
+        }
 
         $weekday = Weekday::tryFrom($date->dayOfWeekIso);
 

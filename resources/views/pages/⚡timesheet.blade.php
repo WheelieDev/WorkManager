@@ -223,6 +223,8 @@ new class extends Component {
             'limit' => $limit,
             'gaugePosition' => (max(-$limit, min($limit, $balance)) + $limit) / (2 * $limit) * 100,
             'daysLeft' => max(0, (int) now()->startOfDay()->diffInDays($period->end->copy()->startOfDay(), false)),
+            'trackingStart' => FlexiPeriod::trackingStart(),
+            'showsTrackingStart' => $period->startsPartWayThrough(),
             'stepLabel' => match ($this->mode) {
                 'day' => 'Today',
                 'period' => 'This period',
@@ -252,6 +254,7 @@ new class extends Component {
             'isToday' => $date->isToday(),
             'isFocused' => $date->isSameDay($this->focusDate()),
             'isFuture' => $date->copy()->startOfDay()->isFuture(),
+            'isTracked' => $calculator->isTracked($date),
             'bankHoliday' => $calculator->bankHolidayTitle($date),
             'isVisible' => $this->allDays
                 || $calculator->isPatternWorkingDay($date)
@@ -326,6 +329,9 @@ new class extends Component {
                 @endif
                 @if ($carry != 0)
                     &middot; <span class="tabular">{{ $signed($carry) }}</span> carried in
+                @endif
+                @if ($showsTrackingStart)
+                    &middot; Tracking starts {{ $trackingStart->format('j M Y') }}
                 @endif
             </div>
         </div>

@@ -10,6 +10,12 @@ use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
 
+beforeEach(function () {
+    // These cover the balance mechanics themselves, so they run with no
+    // tracking start; the start date has its own tests.
+    config(['flexi.tracking_starts' => null]);
+});
+
 /**
  * A feed response in the shape gov.uk returns.
  */
