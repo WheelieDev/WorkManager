@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\BankHoliday;
+use App\Models\LeaveCarryover;
 use App\Models\LeaveDay;
 use App\Models\LeaveRequest;
 use App\Models\WorkPattern;
@@ -19,6 +20,11 @@ use Illuminate\Support\Collection;
  */
 class LeaveLedger
 {
+    /**
+     * How far back to follow the chain of carried balances.
+     */
+    protected const MaxCarryYears = 10;
+
     protected FlexiCalculator $calculator;
 
     public function __construct(public readonly LeaveYear $year)
@@ -129,14 +135,68 @@ class LeaveLedger
     }
 
     /**
+     * Get the hours carried into this year.
+     *
+     * A figure entered by hand wins. Otherwise it is what was left at the end
+     * of the year before, but only where that year has leave recorded against
+     * it; a year nobody has used is not evidence of nothing carried over.
+     */
+    public function carriedIn(int $depth = 0): float
+    {
+        $override = LeaveCarryover::query()->where('leave_year', $this->year->year)->first();
+
+        if ($override !== null) {
+            return $this->cappedCarry((float) $override->hours);
+        }
+
+        if ($depth >= self::MaxCarryYears) {
+            return 0.0;
+        }
+
+        $previous = new self($this->year->previous());
+
+        if (! $previous->hasLeaveRecorded()) {
+            return 0.0;
+        }
+
+        return $this->cappedCarry($previous->annualRemaining($depth + 1));
+    }
+
+    /**
+     * Determine whether the carried figure was entered by hand.
+     */
+    public function carryWasEntered(): bool
+    {
+        return LeaveCarryover::query()->where('leave_year', $this->year->year)->exists();
+    }
+
+    /**
+     * Determine whether the year before this one can be worked out from.
+     */
+    public function hasLeaveRecorded(): bool
+    {
+        return $this->booked()->isNotEmpty() || $this->carryWasEntered();
+    }
+
+    /**
+     * Apply the carryover cap, if there is one.
+     */
+    protected function cappedCarry(float $hours): float
+    {
+        $cap = config('leave.carryover_cap_hours');
+
+        return round($cap === null ? $hours : min($hours, (float) $cap), 2);
+    }
+
+    /**
      * Get the bookable leave for the year, once public holidays are settled.
      *
      * Unspent public holiday hours are added here rather than left in their
      * own pot, because that is where they end up in practice.
      */
-    public function annualEntitlement(): float
+    public function annualEntitlement(int $depth = 0): float
     {
-        return round($this->baseEntitlement() + $this->publicHolidayAdjustment(), 2);
+        return round($this->carriedIn($depth) + $this->baseEntitlement() + $this->publicHolidayAdjustment(), 2);
     }
 
     /**
@@ -339,9 +399,9 @@ class LeaveLedger
     /**
      * Get the bookable leave still available.
      */
-    public function annualRemaining(): float
+    public function annualRemaining(int $depth = 0): float
     {
-        return round($this->annualEntitlement() - $this->annualUsed(), 2);
+        return round($this->annualEntitlement($depth) - $this->annualUsed(), 2);
     }
 
     /**

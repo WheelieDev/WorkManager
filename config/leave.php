@@ -92,4 +92,16 @@ return [
 
     'prorate_public_holidays' => false,
 
+    /*
+    |--------------------------------------------------------------------------
+    | Carryover
+    |--------------------------------------------------------------------------
+    |
+    | The most that may be carried from one leave year into the next. Anything
+    | above it is lost at the turn of the year. Set to null for no cap.
+    |
+    */
+
+    'carryover_cap_hours' => null,
+
 ];

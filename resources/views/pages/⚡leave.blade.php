@@ -2,6 +2,7 @@
 
 use App\Enums\LeaveType;
 use App\Models\LeaveDay;
+use App\Models\LeaveCarryover;
 use App\Models\LeaveRequest;
 use App\Support\FlexiCalculator;
 use App\Support\LeaveLedger;
@@ -24,6 +25,10 @@ new class extends Component {
     public string $hours = '';
 
     public bool $showingForm = false;
+
+    public string $carryover = '';
+
+    public bool $showingCarryover = false;
 
     /**
      * Start on the leave year we are in.
@@ -186,6 +191,42 @@ new class extends Component {
     }
 
     /**
+     * Open the form to set what is carried into this year.
+     */
+    public function editCarryover(): void
+    {
+        $this->resetValidation();
+
+        $ledger = new LeaveLedger($this->leaveYear());
+
+        $this->carryover = $ledger->carryWasEntered() ? (string) $ledger->carriedIn() : '';
+        $this->showingCarryover = true;
+    }
+
+    /**
+     * Save the carried figure, or clear it back to the calculation.
+     */
+    public function saveCarryover(): void
+    {
+        $this->validate([
+            'carryover' => ['nullable', 'numeric', 'min:-500', 'max:500'],
+        ]);
+
+        $year = $this->leaveYear()->year;
+
+        if ($this->carryover === '') {
+            LeaveCarryover::query()->where('leave_year', $year)->delete();
+        } else {
+            LeaveCarryover::query()->updateOrCreate(
+                ['leave_year' => $year],
+                ['hours' => round((float) $this->carryover, 2)],
+            );
+        }
+
+        $this->showingCarryover = false;
+    }
+
+    /**
      * Cancel a request and everything it booked.
      */
     public function deleteLeave(LeaveRequest $request): void
@@ -250,6 +291,26 @@ new class extends Component {
         </div>
 
         <dl class="mt-5 flex max-w-md flex-col gap-1 text-sm">
+            <div class="flex items-baseline justify-between gap-2">
+                <dt class="flex items-baseline gap-2 text-zinc-500 dark:text-zinc-400">
+                    Carried in from {{ $leaveYear->previous()->start->format('Y') }}/{{ $leaveYear->previous()->end->format('y') }}
+                    <span class="text-xs text-zinc-400 dark:text-zinc-500">
+                        {{ $ledger->carryWasEntered() ? 'entered' : 'calculated' }}
+                    </span>
+                    <flux:button
+                        icon="pencil-square"
+                        size="xs"
+                        variant="subtle"
+                        inset="top bottom"
+                        wire:click="editCarryover"
+                        aria-label="Change what is carried in"
+                    />
+                </dt>
+                <dd class="tabular {{ $ledger->carriedIn() < 0 ? 'text-deficit dark:text-deficit-bright' : '' }}">
+                    {{ $ledger->carriedIn() > 0 ? '+' : '' }}{{ $hours($ledger->carriedIn()) }}
+                </dd>
+            </div>
+
             <div class="flex justify-between">
                 <dt class="text-zinc-500 dark:text-zinc-400">
                     {{ config('leave.annual_leave_days') }} days at your hours and weeks
@@ -462,6 +523,28 @@ new class extends Component {
             <div class="flex gap-2">
                 <flux:button type="submit" variant="primary" :disabled="$chosenDays->isEmpty()">Save</flux:button>
                 <flux:button variant="ghost" wire:click="$set('showingForm', false)">Cancel</flux:button>
+            </div>
+        </form>
+    </flux:modal>
+
+    <flux:modal wire:model="showingCarryover" class="max-w-sm">
+        <form wire:submit="saveCarryover" class="flex flex-col gap-4">
+            <flux:heading size="lg">Carried in</flux:heading>
+
+            <flux:field>
+                <flux:label>Hours brought forward</flux:label>
+                <flux:description>
+                    Leave blank to work it out from {{ $leaveYear->previous()->label() }}, where there is
+                    anything to go on.
+                </flux:description>
+                <flux:input type="number" step="0.25" wire:model="carryover"
+                            placeholder="{{ $hours($ledger->carriedIn()) }}" />
+                <flux:error name="carryover" />
+            </flux:field>
+
+            <div class="flex gap-2">
+                <flux:button type="submit" variant="primary">Save</flux:button>
+                <flux:button variant="ghost" wire:click="$set('showingCarryover', false)">Cancel</flux:button>
             </div>
         </form>
     </flux:modal>

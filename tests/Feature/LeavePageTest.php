@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\BankHoliday;
+use App\Models\LeaveCarryover;
 use App\Models\LeaveDay;
 use App\Models\LeaveRequest;
 use App\Models\User;
@@ -322,3 +323,72 @@ it('offers edit and cancel on every request', function () {
         ->assertSee('Cancel leave from 7 September 2026')
         ->assertSee('The 4 days it booked will be given back.');
 })->note('Both actions were hidden behind a hover or a click on the date.');
+
+/*
+|--------------------------------------------------------------------------
+| Carried in
+|--------------------------------------------------------------------------
+*/
+
+it('shows what is carried in and where it came from', function () {
+    Livewire::test('pages::leave')
+        ->assertSee('Carried in from 2025/26')
+        ->assertSee('calculated');
+});
+
+it('says when the carried figure was entered by hand', function () {
+    LeaveCarryover::factory()->create(['leave_year' => 2026, 'hours' => 12.5]);
+
+    Livewire::test('pages::leave')
+        ->assertSee('entered')
+        ->assertSee('12.50');
+});
+
+it('enters a carried figure', function () {
+    Livewire::test('pages::leave')
+        ->call('editCarryover')
+        ->assertSet('showingCarryover', true)
+        ->set('carryover', '9.5')
+        ->call('saveCarryover')
+        ->assertHasNoErrors()
+        ->assertSet('showingCarryover', false);
+
+    expect(LeaveCarryover::query()->sole()->hours)->toBe(9.5);
+});
+
+it('adds the carried figure to the entitlement on the page', function () {
+    Livewire::test('pages::leave')
+        ->call('editCarryover')
+        ->set('carryover', '10')
+        ->call('saveCarryover');
+
+    // 79.21 base + 25.60 public holidays + 10.00 carried in
+    Livewire::test('pages::leave')->assertSee('114.81');
+});
+
+it('clears the carried figure back to the calculation', function () {
+    LeaveCarryover::factory()->create(['leave_year' => 2026, 'hours' => 12.5]);
+
+    Livewire::test('pages::leave')
+        ->call('editCarryover')
+        ->assertSet('carryover', '12.5')
+        ->set('carryover', '')
+        ->call('saveCarryover')
+        ->assertHasNoErrors();
+
+    expect(LeaveCarryover::query()->count())->toBe(0);
+
+    Livewire::test('pages::leave')->assertSee('calculated');
+});
+
+it('keeps the carried figure to its own leave year', function () {
+    Livewire::test('pages::leave')
+        ->call('editCarryover')
+        ->set('carryover', '9.5')
+        ->call('saveCarryover');
+
+    Livewire::test('pages::leave')
+        ->call('shiftYear', 1)
+        ->call('editCarryover')
+        ->assertSet('carryover', '');
+});
