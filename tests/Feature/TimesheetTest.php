@@ -23,117 +23,147 @@ beforeEach(function () {
     }
 });
 
-it('opens on the period containing today', function () {
+/*
+|--------------------------------------------------------------------------
+| Views and navigation
+|--------------------------------------------------------------------------
+*/
+
+it('opens on this week', function () {
     Livewire::test('pages::timesheet')
-        ->assertSet('period', 0)
-        ->assertSee('10 Aug - 20 Sep 2026');
+        ->assertSet('mode', 'week')
+        ->assertSet('focus', '2026-08-27')
+        ->assertSee('Week 3 of 6')
+        ->assertSee('24 Aug');
 });
 
-it('shows every week of the period at once', function () {
+it('steps a day at a time in the day view', function () {
     Livewire::test('pages::timesheet')
-        ->assertSeeInOrder(['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5', 'Week 6'])
-        ->assertSeeInOrder(['10 Aug', '17 Aug', '24 Aug', '31 Aug', '7 Sep', '14 Sep']);
+        ->call('showMode', 'day')
+        ->assertSee('Thursday 27 August 2026')
+        ->call('shift', -1)
+        ->assertSet('focus', '2026-08-26')
+        ->assertSee('Wednesday 26 August 2026')
+        ->call('shift', 1)
+        ->call('shift', 1)
+        ->assertSet('focus', '2026-08-28');
 });
 
-it('marks the week containing today', function () {
-    Livewire::test('pages::timesheet')->assertSee('This week');
+it('steps a week at a time in the week view', function () {
+    Livewire::test('pages::timesheet')
+        ->call('shift', -1)
+        ->assertSet('focus', '2026-08-20')
+        ->assertSee('Week 2 of 6')
+        ->call('shift', 1)
+        ->assertSee('Week 3 of 6');
 });
 
-it('steps between periods', function () {
+it('steps a period at a time in the period view', function () {
     Livewire::test('pages::timesheet')
-        ->call('shiftPeriod', -1)
-        ->assertSet('period', -1)
+        ->call('showMode', 'period')
+        ->assertSee('10 Aug - 20 Sep 2026')
+        ->call('shift', -1)
         ->assertSee('29 Jun - 9 Aug 2026')
-        ->call('shiftPeriod', 1)
-        ->call('shiftPeriod', 1)
-        ->assertSet('period', 1)
-        ->assertSee('21 Sep - 1 Nov 2026')
-        ->call('thisPeriod')
-        ->assertSet('period', 0);
+        ->call('shift', 1)
+        ->call('shift', 1)
+        ->assertSee('21 Sep - 1 Nov 2026');
 });
 
-it('totals each week of the period', function () {
-    // Week 3 of the period is 24 to 30 August.
-    WorkSession::factory()->on('2026-08-24', '09:00', '18:00')->create();
-    WorkSession::factory()->on('2026-08-25', '09:00', '16:30')->create();
+it('returns to today from any view', function () {
+    Livewire::test('pages::timesheet')
+        ->call('shift', -2)
+        ->call('today')
+        ->assertSet('focus', '2026-08-27');
+});
+
+it('keeps the focus date when the view changes', function () {
+    Livewire::test('pages::timesheet')
+        ->call('showMode', 'day')
+        ->call('shift', -8)
+        ->assertSet('focus', '2026-08-19')
+        ->call('showMode', 'week')
+        ->assertSee('Week 2 of 6')
+        ->call('showMode', 'period')
+        ->assertSee('10 Aug - 20 Sep 2026');
+})->note('Moving between views should never lose your place.');
+
+it('ignores an unknown view', function () {
+    Livewire::test('pages::timesheet')
+        ->call('showMode', 'nonsense')
+        ->assertSet('mode', 'week');
+});
+
+it('keeps the view and the date in the url', function () {
+    Livewire::withUrlParams(['mode' => 'period', 'focus' => '2026-09-25'])
+        ->test('pages::timesheet')
+        ->assertSet('mode', 'period')
+        ->assertSee('21 Sep - 1 Nov 2026');
+});
+
+it('opens a day from the week view', function () {
+    Livewire::test('pages::timesheet')
+        ->call('showDay', '2026-08-25')
+        ->assertSet('mode', 'day')
+        ->assertSet('focus', '2026-08-25')
+        ->assertSee('Tuesday 25 August 2026');
+});
+
+it('opens a week from the period view', function () {
+    Livewire::test('pages::timesheet')
+        ->call('showMode', 'period')
+        ->call('showWeek', '2026-08-17')
+        ->assertSet('mode', 'week')
+        ->assertSee('Week 2 of 6');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Day view
+|--------------------------------------------------------------------------
+*/
+
+it('lists the entries for a single day', function () {
+    WorkSession::factory()->on('2026-08-27', '09:00', '12:30')->create();
+    WorkSession::factory()->on('2026-08-27', '13:30', '17:00')->create();
 
     Livewire::test('pages::timesheet')
-        ->assertSee('16.50 / 30.00')
-        ->assertSee('-13.50');
-})->note('Expected counts Mon to Wed only, since later days have not happened.');
-
-it('shows the sessions worked in the week', function () {
-    WorkSession::factory()->on('2026-08-25', '09:00', '17:30')->create();
-
-    Livewire::test('pages::timesheet')
+        ->call('showMode', 'day')
         ->assertSee('09:00')
-        ->assertSee('17:30');
+        ->assertSee('12:30')
+        ->assertSee('3.50h')
+        ->assertSee('Add entry');
 });
 
-it('adds a session to a day', function () {
+it('says when a day has nothing on it', function () {
     Livewire::test('pages::timesheet')
-        ->call('addSession', '2026-08-25')
-        ->assertSet('showingForm', true)
-        ->set('start_time', '09:00')
-        ->set('end_time', '17:30')
-        ->call('saveSession')
-        ->assertHasNoErrors()
-        ->assertSet('showingForm', false);
-
-    $session = WorkSession::query()->sole();
-
-    expect($session->date()->toDateString())->toBe('2026-08-25')
-        ->and($session->hours())->toBe(8.5);
+        ->call('showMode', 'day')
+        ->assertSee('Nothing recorded on this day.');
 });
 
-it('edits an existing session', function () {
-    $session = WorkSession::factory()->on('2026-08-25', '09:00', '17:00')->create();
+it('shows the bank holiday on the day it falls', function () {
+    BankHoliday::factory()->on('2026-08-31')->create();
 
     Livewire::test('pages::timesheet')
-        ->call('editSession', $session)
-        ->assertSet('start_time', '09:00')
-        ->assertSet('end_time', '17:00')
-        ->set('end_time', '18:00')
-        ->call('saveSession')
-        ->assertHasNoErrors();
-
-    expect($session->fresh()->hours())->toBe(9.0)
-        ->and(WorkSession::query()->count())->toBe(1);
+        ->call('showDay', '2026-08-31')
+        ->assertSee('Summer bank holiday')
+        ->assertSee('0.00 / 0.00');
 });
 
-it('deletes a session', function () {
-    $session = WorkSession::factory()->on('2026-08-25')->create();
+/*
+|--------------------------------------------------------------------------
+| Week view
+|--------------------------------------------------------------------------
+*/
 
+it('shows all the working days of one week only', function () {
     Livewire::test('pages::timesheet')
-        ->call('deleteSession', $session)
-        ->assertHasNoErrors();
-
-    expect(WorkSession::query()->count())->toBe(0);
-});
-
-it('shows each day totals on a single compact line', function () {
-    WorkSession::factory()->on('2026-08-24', '09:00', '18:00')->create();
-
-    Livewire::test('pages::timesheet')
-        ->assertSee('9.00 / 7.50')
-        ->assertSee('+1.50')
-        ->assertDontSee('Expected</dt>', escape: false);
-});
-
-it('does not count future days towards the week totals', function () {
-    // Today is Thursday 27 August. Week 1 has fully elapsed and expects all
-    // five weekdays; the current week expects only Monday to Thursday.
-    Livewire::test('pages::timesheet')
-        ->assertSee('0.00 / 37.50')
-        ->assertSee('0.00 / 30.00');
-})->note('Otherwise the current week reads worse than the balance does.');
-
-it('marks a week that has not started yet', function () {
-    Livewire::test('pages::timesheet')->assertSee('Not started');
-});
+        ->assertSee('24 Aug')
+        ->assertSee('28 Aug')
+        ->assertDontSee('17 Aug')
+        ->assertDontSee('31 Aug');
+})->note('The week view is one week, not the whole period.');
 
 it('shows only the days the pattern works', function () {
-    // The pattern in beforeEach works Monday to Friday, so weekends are out.
     Livewire::test('pages::timesheet')
         ->assertSee('Mon')
         ->assertSee('Fri')
@@ -159,7 +189,6 @@ it('drops a weekday the pattern does not work', function () {
 });
 
 it('still shows a day that has an entry on it', function () {
-    // Saturday is not a working day, but time was recorded on it.
     WorkSession::factory()->on('2026-08-29', '10:00', '14:00')->create();
 
     Livewire::test('pages::timesheet')
@@ -175,17 +204,8 @@ it('always shows today', function () {
         $pattern->days()->create(['weekday' => $weekday, 'start_time' => null, 'end_time' => null]);
     }
 
-    // Today is Thursday 27 August and the pattern works nothing.
     Livewire::test('pages::timesheet')->assertSee('27 Aug');
 });
-
-it('still shows a bank holiday that falls on a working day', function () {
-    BankHoliday::factory()->on('2026-08-31')->create();
-
-    Livewire::test('pages::timesheet')
-        ->assertSee('31 Aug')
-        ->assertSee('Summer bank holiday');
-})->note('It expects no hours, but it explains why the week is short.');
 
 it('shows every day when all days is switched on', function () {
     Livewire::test('pages::timesheet')
@@ -202,52 +222,97 @@ it('falls back to the working week with no pattern at all', function () {
         ->assertDontSee('Sat');
 })->note('There has to be somewhere to record time before a pattern exists.');
 
-it('opens on the day view', function () {
+it('does not count future days towards the week totals', function () {
+    // Today is Thursday 27 August, so Friday of this week is still to come.
     Livewire::test('pages::timesheet')
-        ->assertSet('view', 'days')
-        ->assertSee('Mon')
-        ->assertDontSee('Switch to Days');
-});
+        ->assertSee('0.00 / 30.00')
+        ->call('shift', -2)
+        ->assertSee('0.00 / 37.50');
+})->note('Otherwise the current week reads worse than the balance does.');
 
-it('switches to the week summary', function () {
-    WorkSession::factory()->on('2026-08-24', '09:00', '18:00')->create();
+it('still shows a bank holiday that falls on a working day', function () {
+    BankHoliday::factory()->on('2026-08-31')->create();
 
     Livewire::test('pages::timesheet')
-        ->call('showView', 'weeks')
-        ->assertSet('view', 'weeks')
+        ->call('shift', 1)
+        ->assertSee('31 Aug')
+        ->assertSee('Summer bank holiday');
+})->note('It expects no hours, but it explains why the week is short.');
+
+/*
+|--------------------------------------------------------------------------
+| Period view
+|--------------------------------------------------------------------------
+*/
+
+it('shows every week of the period', function () {
+    Livewire::test('pages::timesheet')
+        ->call('showMode', 'period')
         ->assertSeeInOrder(['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5', 'Week 6'])
-        ->assertSee('Switch to Days to add or change hours.');
+        ->assertSee('Choose a week to see its days.')
+        ->assertDontSee('Mon');
 });
 
-it('shows week totals and deltas in the week summary', function () {
+it('totals each week of the period', function () {
     WorkSession::factory()->on('2026-08-24', '09:00', '18:00')->create();
 
     Livewire::test('pages::timesheet')
-        ->call('showView', 'weeks')
+        ->call('showMode', 'period')
         ->assertSee('9.00 / 30.00')
-        ->assertSee('-21.00')
+        ->assertSee('-21.00');
+});
+
+it('marks a week that has not started yet', function () {
+    Livewire::test('pages::timesheet')
+        ->call('showMode', 'period')
         ->assertSee('Not started');
 });
 
-it('drops the day cells in the week summary', function () {
-    WorkSession::factory()->on('2026-08-24', '09:00', '18:00')->create();
+/*
+|--------------------------------------------------------------------------
+| Entries
+|--------------------------------------------------------------------------
+*/
 
+it('adds an entry to a day', function () {
     Livewire::test('pages::timesheet')
-        ->call('showView', 'weeks')
-        ->assertDontSee('09:00&ndash;18:00', escape: false);
-})->note('The summary reads the period; editing stays in the day view.');
+        ->call('addSession', '2026-08-25')
+        ->assertSet('showingForm', true)
+        ->set('start_time', '09:00')
+        ->set('end_time', '17:30')
+        ->call('saveSession')
+        ->assertHasNoErrors()
+        ->assertSet('showingForm', false);
 
-it('ignores an unknown view', function () {
-    Livewire::test('pages::timesheet')
-        ->call('showView', 'nonsense')
-        ->assertSet('view', 'days');
+    $session = WorkSession::query()->sole();
+
+    expect($session->date()->toDateString())->toBe('2026-08-25')
+        ->and($session->hours())->toBe(8.5);
 });
 
-it('keeps the view in the url', function () {
-    Livewire::withUrlParams(['view' => 'weeks'])
-        ->test('pages::timesheet')
-        ->assertSet('view', 'weeks')
-        ->assertSee('Switch to Days to add or change hours.');
+it('edits an existing entry', function () {
+    $session = WorkSession::factory()->on('2026-08-25', '09:00', '17:00')->create();
+
+    Livewire::test('pages::timesheet')
+        ->call('editSession', $session)
+        ->assertSet('start_time', '09:00')
+        ->assertSet('end_time', '17:00')
+        ->set('end_time', '18:00')
+        ->call('saveSession')
+        ->assertHasNoErrors();
+
+    expect($session->fresh()->hours())->toBe(9.0)
+        ->and(WorkSession::query()->count())->toBe(1);
+});
+
+it('deletes an entry', function () {
+    $session = WorkSession::factory()->on('2026-08-25')->create();
+
+    Livewire::test('pages::timesheet')
+        ->call('deleteSession', $session)
+        ->assertHasNoErrors();
+
+    expect(WorkSession::query()->count())->toBe(0);
 });
 
 it('rejects an end time before the start time', function () {
@@ -260,6 +325,12 @@ it('rejects an end time before the start time', function () {
 
     expect(WorkSession::query()->count())->toBe(0);
 });
+
+/*
+|--------------------------------------------------------------------------
+| Balance and performance
+|--------------------------------------------------------------------------
+*/
 
 it('shows the running balance for the period', function () {
     WorkSession::factory()->on('2026-08-24', '09:00', '16:30')->create();
@@ -280,6 +351,26 @@ it('reads the gauge against the limit in both directions', function () {
         ->assertSee('in balance');
 })->note('With no pattern and no sessions the balance sits at zero.');
 
+it('warns when the balance passes the limit', function () {
+    WorkPattern::query()->delete();
+    WorkSession::factory()->create(['started_at' => '2026-08-15 00:00', 'ended_at' => '2026-08-15 20:00']);
+
+    Livewire::test('pages::timesheet')
+        ->assertSee('Over the 16h limit by')
+        ->assertSee('+20.00')
+        ->assertSee('hours banked');
+});
+
+it('shows the same balance whichever view is open', function () {
+    WorkSession::factory()->on('2026-08-24', '09:00', '18:00')->create();
+
+    foreach (['day', 'week', 'period'] as $mode) {
+        Livewire::test('pages::timesheet')
+            ->call('showMode', $mode)
+            ->assertSee('hours owed');
+    }
+})->note('Every view is a slice of the same period.');
+
 it('loads the whole period without a query per day', function () {
     WorkSession::factory()->on('2026-08-24', '09:00', '18:00')->create();
 
@@ -290,16 +381,6 @@ it('loads the whole period without a query per day', function () {
 
     expect($queries)->toBeLessThan(20);
 })->note('42 days once cost a query each; they are now batched.');
-
-it('warns when the balance passes the limit', function () {
-    WorkPattern::query()->delete();
-    WorkSession::factory()->create(['started_at' => '2026-08-15 00:00', 'ended_at' => '2026-08-15 20:00']);
-
-    Livewire::test('pages::timesheet')
-        ->assertSee('Over the 16h limit by')
-        ->assertSee('+20.00')
-        ->assertSee('hours banked');
-});
 
 it('requires signing in', function () {
     auth()->logout();

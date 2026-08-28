@@ -1,0 +1,81 @@
+{{-- One day, in full. Room to record what happened and, later, why a day was
+     not worked. --}}
+<section class="mt-8 max-w-2xl">
+    <div class="flex flex-wrap items-baseline justify-between gap-3 border-b border-zinc-200 pb-2 dark:border-zinc-700">
+        <div class="flex items-baseline gap-3">
+            <span class="text-[0.7rem] font-medium uppercase tracking-[0.16em] text-zinc-400 dark:text-zinc-500">
+                Week {{ $flexiPeriod->weekNumberFor($day['date']) }} of {{ $flexiPeriod->weekCount() }}
+            </span>
+
+            @if ($day['isToday'])
+                <span class="rounded-sm bg-zinc-800 px-1.5 py-0.5 text-[0.65rem] font-medium uppercase tracking-wider text-white dark:bg-white dark:text-zinc-900">Today</span>
+            @endif
+
+            @if ($day['bankHoliday'])
+                <span class="text-xs text-ledger-ink/70 dark:text-zinc-400">{{ $day['bankHoliday'] }}</span>
+            @endif
+        </div>
+
+        <div class="flex items-baseline gap-3 text-sm">
+            <span class="tabular text-zinc-400 dark:text-zinc-500">
+                {{ number_format($day['worked'], 2) }} / {{ number_format($day['expected'], 2) }}
+            </span>
+
+            @if ($day['isFuture'])
+                <span class="text-zinc-300 dark:text-zinc-600">&mdash;</span>
+            @else
+                <span class="tabular font-medium {{ $tone($day['delta']) }}">{{ $signed($day['delta']) }}</span>
+            @endif
+        </div>
+    </div>
+
+    {{-- The day's deviation, on the same scale the other views use. --}}
+    @unless ($day['isFuture'])
+        <div class="relative mt-3 h-5">
+            <div class="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-zinc-300 dark:bg-zinc-600"></div>
+
+            @if ($day['delta'] != 0)
+                <div class="absolute top-1/2 h-2.5 -translate-y-1/2 rounded-[1px] @if ($day['delta'] > 0) left-1/2 bg-surplus dark:bg-surplus-bright @else right-1/2 bg-deficit dark:bg-deficit-bright @endif"
+                     style="width: {{ max(0.5, min(1, abs($day['delta']) / $scale) * 50) }}%"></div>
+            @else
+                <div class="absolute left-1/2 top-1/2 h-2.5 w-1 -translate-x-1/2 -translate-y-1/2 rounded-[1px] bg-zinc-300 dark:bg-zinc-600"></div>
+            @endif
+        </div>
+    @endunless
+
+    <div class="mt-5 flex flex-col">
+        @forelse ($day['sessions'] as $session)
+            <div class="group/entry flex items-center justify-between gap-3 border-b border-zinc-100 py-2 dark:border-zinc-800" wire:key="entry-{{ $session->id }}">
+                @if ($session->isRunning())
+                    <span class="tabular text-sm text-surplus dark:text-surplus-bright">
+                        {{ $session->started_at->format('H:i') }} &ndash; running
+                    </span>
+                    <span class="text-xs text-zinc-400 dark:text-zinc-500">Stop the timer on the dashboard</span>
+                @else
+                    <button type="button"
+                            class="tabular text-sm text-zinc-700 hover:underline dark:text-zinc-200"
+                            wire:click="editSession({{ $session->id }})">
+                        {{ $session->started_at->format('H:i') }} &ndash; {{ $session->ended_at->format('H:i') }}
+                    </button>
+
+                    <div class="flex items-center gap-3">
+                        <span class="tabular text-sm text-zinc-400 dark:text-zinc-500">{{ number_format($session->hours(), 2) }}h</span>
+                        <button type="button"
+                                class="text-sm text-zinc-300 opacity-0 transition hover:text-deficit focus-visible:opacity-100 group-hover/entry:opacity-100 dark:text-zinc-600"
+                                wire:click="deleteSession({{ $session->id }})"
+                                wire:confirm="Delete this entry?"
+                                aria-label="Delete entry">&times;</button>
+                    </div>
+                @endif
+            </div>
+        @empty
+            <p class="border-b border-zinc-100 py-3 text-sm text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
+                Nothing recorded on this day.
+            </p>
+        @endforelse
+    </div>
+
+    <flux:button size="sm" variant="subtle" icon="plus" class="mt-4" wire:click="addSession('{{ $day['key'] }}')">
+        Add entry
+    </flux:button>
+</section>
