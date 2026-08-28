@@ -334,7 +334,7 @@ new class extends Component {
                             <th class="py-1.5 text-end font-medium">Days</th>
                             <th class="py-1.5 text-end font-medium">Bank holidays</th>
                             <th class="py-1.5 text-end font-medium">Hours</th>
-                            <th class="w-8"><span class="sr-only">Cancel</span></th>
+                            <th class="w-20"><span class="sr-only">Actions</span></th>
                         </tr>
                     </thead>
 
@@ -344,12 +344,9 @@ new class extends Component {
                                 $holidays = $ledger->requestPublicHolidays($request);
                             @endphp
 
-                            <tr class="group/req border-b border-zinc-100 dark:border-zinc-800" wire:key="request-{{ $request->id }}">
-                                <td class="py-1.5">
-                                    <button type="button" class="tabular text-start text-zinc-700 hover:underline dark:text-zinc-200"
-                                            wire:click="editLeave({{ $request->id }})">
-                                        {{ $request->label() }}
-                                    </button>
+                            <tr class="border-b border-zinc-100 dark:border-zinc-800" wire:key="request-{{ $request->id }}">
+                                <td class="tabular py-1.5 text-zinc-700 dark:text-zinc-200">
+                                    {{ $request->label() }}
                                 </td>
 
                                 <td class="tabular py-1.5 text-end text-zinc-500 dark:text-zinc-400">
@@ -365,11 +362,26 @@ new class extends Component {
                                 </td>
 
                                 <td class="py-1.5 text-end">
-                                    <button type="button"
-                                            class="text-zinc-300 opacity-0 transition hover:text-deficit focus-visible:opacity-100 group-hover/req:opacity-100 dark:text-zinc-600"
+                                    <div class="flex justify-end gap-1">
+                                        <flux:button
+                                            icon="pencil-square"
+                                            size="xs"
+                                            variant="subtle"
+                                            inset="top bottom"
+                                            wire:click="editLeave({{ $request->id }})"
+                                            :aria-label="'Edit leave from '.$request->starts_on->format('j F Y')"
+                                        />
+
+                                        <flux:button
+                                            icon="trash"
+                                            size="xs"
+                                            variant="subtle"
+                                            inset="top bottom"
                                             wire:click="deleteLeave({{ $request->id }})"
-                                            wire:confirm="Cancel this leave?"
-                                            aria-label="Cancel leave from {{ $request->starts_on->format('j F Y') }}">&times;</button>
+                                            wire:confirm="Cancel this leave? The {{ $ledger->requestDays($request) }} {{ Str::plural('day', $ledger->requestDays($request)) }} it booked will be given back."
+                                            :aria-label="'Cancel leave from '.$request->starts_on->format('j F Y')"
+                                        />
+                                    </div>
                                 </td>
                             </tr>
                         @endforeach

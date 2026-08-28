@@ -311,3 +311,14 @@ it('invites a first booking when the table is empty', function () {
         ->assertSee('No leave booked this year')
         ->assertSee('the hours come from your pattern');
 });
+
+it('offers edit and cancel on every request', function () {
+    Livewire::test('pages::leave')->call('bookLeave', '2026-09-07')->set('to', '2026-09-10')->call('saveLeave');
+
+    $request = LeaveRequest::query()->sole();
+
+    Livewire::test('pages::leave')
+        ->assertSee('Edit leave from 7 September 2026')
+        ->assertSee('Cancel leave from 7 September 2026')
+        ->assertSee('The 4 days it booked will be given back.');
+})->note('Both actions were hidden behind a hover or a click on the date.');
