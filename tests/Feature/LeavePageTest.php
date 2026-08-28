@@ -33,22 +33,28 @@ it('says how each entitlement was arrived at', function () {
         ->assertSee('47.8');
 })->note('The two are pro-rata\'d differently, so the page has to say so.');
 
-it('shows the two pots apart from each other', function () {
+it('shows one balance with the working out under it', function () {
     Livewire::test('pages::leave')
         ->assertSee('Bookable leave')
-        ->assertSee('Public holidays')
         ->assertSee('79.21')   // 27 days for 47.8 paid weeks
-        ->assertSee('25.60');  // 8 public holiday days in full
+        ->assertSee('25.60')   // 8 public holiday days in full
+        ->assertSee('less taken by bank holidays')
+        ->assertSee('Entitlement');
 });
 
-it('shows the unspent allowance going into bookable leave', function () {
+it('shows the unspent allowance as a line in the breakdown', function () {
     BankHoliday::factory()->on('2026-12-28')->create();
 
     Livewire::test('pages::leave')
-        ->assertSee('Goes to bookable leave')
-        ->assertSee('21.60')
-        ->assertSee('added to your bookable leave');
-})->note('The surplus is the whole reason the two pots are shown together.');
+        ->assertSee('Public holidays left over')
+        ->assertSee('21.60');
+})->note('One balance, not two to reconcile by eye.');
+
+it('does not offer public holidays as a balance of their own', function () {
+    Livewire::test('pages::leave')
+        ->assertDontSee('hours of 25.60 left over')
+        ->assertDontSee('Goes to bookable leave');
+});
 
 it('shows what each bank holiday costs', function () {
     BankHoliday::factory()->on('2026-12-28', 'Boxing Day')->create();
@@ -67,7 +73,7 @@ it('names the leave spent supplementing bank holidays', function () {
     }
 
     Livewire::test('pages::leave')
-        ->assertSee('Taken from bookable leave')
+        ->assertSee('Public holidays over the allowance')
         ->assertSee('2.40')
         ->assertSee('making up the difference');
 })->note('The whole point of keeping the two pots apart.');

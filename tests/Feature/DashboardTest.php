@@ -113,10 +113,9 @@ it('shows both leave pots', function () {
     Livewire::test('pages::dashboard')
         ->assertSee('Leave')
         ->assertSee('1 Apr 2026 - 31 Mar 2027')
-        ->assertSee('Bookable')
+        ->assertSee('Leave')
         ->assertSee('104.81')
-        ->assertSee('Public holidays')
-        ->assertSee('25.60');
+        ->assertSee('25.60h of public holiday allowance');
 });
 
 it('counts booked leave off the bookable pot', function () {
@@ -147,7 +146,7 @@ it('says nothing about a shortfall when there is none', function () {
 
     Livewire::test('pages::dashboard')
         ->assertDontSee('making up the difference')
-        ->assertSee('added to your bookable leave');
+        ->assertSee('the bank holidays did not use');
 });
 
 it('flags a day taken as leave', function () {

@@ -204,35 +204,16 @@ new class extends Component {
                 <flux:button :href="route('leave')" variant="subtle" wire:navigate>Book leave</flux:button>
             </div>
 
-            <div class="mt-4 grid gap-4 sm:grid-cols-2">
-                <div>
-                    <flux:text variant="subtle" class="text-sm">Bookable</flux:text>
-
-                    <div class="mt-1 flex items-baseline gap-2">
-                        <span class="tabular text-3xl font-semibold {{ $ledger->isOverdrawn() ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-800 dark:text-white' }}">
-                            {{ number_format($ledger->annualRemaining(), 2) }}
-                        </span>
-                        <flux:text variant="subtle">
-                            of {{ number_format($ledger->annualEntitlement(), 2) }}h left
-                            @if ($ledger->asDays($ledger->annualRemaining()) !== null)
-                                &middot; about {{ $ledger->asDays($ledger->annualRemaining()) }} days
-                            @endif
-                        </flux:text>
-                    </div>
-                </div>
-
-                <div>
-                    <flux:text variant="subtle" class="text-sm">Public holidays</flux:text>
-
-                    <div class="mt-1 flex items-baseline gap-2">
-                        <span class="tabular text-3xl font-semibold text-zinc-800 dark:text-white">
-                            {{ number_format($ledger->publicHolidaysRemaining(), 2) }}
-                        </span>
-                        <flux:text variant="subtle">
-                            of {{ number_format($ledger->publicHolidayEntitlement(), 2) }}h left over
-                        </flux:text>
-                    </div>
-                </div>
+            <div class="mt-4 flex items-baseline gap-2">
+                <span class="tabular text-3xl font-semibold {{ $ledger->isOverdrawn() ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-800 dark:text-white' }}">
+                    {{ number_format($ledger->annualRemaining(), 2) }}
+                </span>
+                <flux:text variant="subtle">
+                    of {{ number_format($ledger->annualEntitlement(), 2) }}h left
+                    @if ($ledger->asDays($ledger->annualRemaining()) !== null)
+                        &middot; about {{ $ledger->asDays($ledger->annualRemaining()) }} days
+                    @endif
+                </flux:text>
             </div>
 
             @if ($ledger->publicHolidayAdjustment() < 0)
@@ -244,9 +225,9 @@ new class extends Component {
                     </flux:callout.text>
                 </flux:callout>
             @elseif ($ledger->publicHolidayAdjustment() > 0)
-                <flux:text variant="subtle" class="mt-4 block text-sm">
-                    Includes {{ number_format($ledger->publicHolidayAdjustment(), 2) }}h of unspent public holiday
-                    allowance, added to your bookable leave.
+                <flux:text variant="subtle" class="mt-3 block text-sm">
+                    Includes {{ number_format($ledger->publicHolidayAdjustment(), 2) }}h of public holiday allowance
+                    the bank holidays did not use.
                 </flux:text>
             @endif
         </flux:card>

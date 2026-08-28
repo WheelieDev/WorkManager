@@ -150,84 +150,64 @@ new class extends Component {
         </div>
     </div>
 
-    {{-- The two pots, kept apart on purpose. --}}
-    <div class="mt-6 grid gap-4 sm:grid-cols-2">
-        <section class="rounded-xl border border-zinc-200 bg-ledger px-5 py-5 dark:border-zinc-700 dark:bg-white/[0.03]">
-            <div class="text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">Bookable leave</div>
+    {{-- One balance, with the public holiday adjustment shown as a line in it
+         rather than as a second pot to reconcile by eye. --}}
+    <section class="mt-6 rounded-xl border border-zinc-200 bg-ledger px-5 py-5 dark:border-zinc-700 dark:bg-white/[0.03]">
+        <div class="text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">Bookable leave</div>
 
-            <div class="mt-1 flex items-baseline gap-3">
-                <span class="tabular text-4xl font-medium leading-none {{ $ledger->isOverdrawn() ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-800 dark:text-white' }}">
-                    {{ $hours($ledger->annualRemaining()) }}
-                </span>
-                <span class="text-sm text-zinc-500 dark:text-zinc-400">
-                    hours left of {{ $hours($ledger->annualEntitlement()) }}
-                    @if ($ledger->asDays($ledger->annualRemaining()) !== null)
-                        &middot; about {{ $ledger->asDays($ledger->annualRemaining()) }} days
-                    @endif
-                </span>
+        <div class="mt-1 flex items-baseline gap-3">
+            <span class="tabular text-4xl font-medium leading-none {{ $ledger->isOverdrawn() ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-800 dark:text-white' }}">
+                {{ $hours($ledger->annualRemaining()) }}
+            </span>
+            <span class="text-sm text-zinc-500 dark:text-zinc-400">
+                hours left of {{ $hours($ledger->annualEntitlement()) }}
+                @if ($ledger->asDays($ledger->annualRemaining()) !== null)
+                    &middot; about {{ $ledger->asDays($ledger->annualRemaining()) }} days
+                @endif
+            </span>
+        </div>
+
+        <dl class="mt-5 flex max-w-md flex-col gap-1 text-sm">
+            <div class="flex justify-between">
+                <dt class="text-zinc-500 dark:text-zinc-400">
+                    {{ config('leave.annual_leave_days') }} days at your hours and weeks
+                </dt>
+                <dd class="tabular">{{ $hours($ledger->baseEntitlement()) }}</dd>
             </div>
 
-            <dl class="mt-4 flex flex-col gap-1 text-sm">
-                <div class="flex justify-between">
-                    <dt class="text-zinc-500 dark:text-zinc-400">
-                        {{ config('leave.annual_leave_days') }} days at your hours and weeks
-                    </dt>
-                    <dd class="tabular">{{ $hours($ledger->baseEntitlement()) }}</dd>
-                </div>
-                <div class="flex justify-between">
-                    <dt class="text-zinc-500 dark:text-zinc-400">
-                        {{ $ledger->publicHolidayAdjustment() >= 0 ? 'Public holidays left over' : 'Public holidays over the allowance' }}
-                    </dt>
-                    <dd class="tabular {{ $ledger->publicHolidayAdjustment() < 0 ? 'text-deficit dark:text-deficit-bright' : 'text-surplus dark:text-surplus-bright' }}">
-                        {{ $ledger->publicHolidayAdjustment() > 0 ? '+' : '' }}{{ $hours($ledger->publicHolidayAdjustment()) }}
-                    </dd>
-                </div>
-                <div class="flex justify-between border-t border-zinc-200 pt-1 font-medium dark:border-zinc-700">
-                    <dt class="text-zinc-500 dark:text-zinc-400">Entitlement</dt>
-                    <dd class="tabular">{{ $hours($ledger->annualEntitlement()) }}</dd>
-                </div>
-                <div class="flex justify-between">
-                    <dt class="text-zinc-500 dark:text-zinc-400">Booked</dt>
-                    <dd class="tabular">{{ $hours($ledger->annualBooked()) }}</dd>
-                </div>
-            </dl>
-        </section>
-
-        <section class="rounded-xl border border-zinc-200 px-5 py-5 dark:border-zinc-700">
-            <div class="text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">Public holidays</div>
-
-            <div class="mt-1 flex items-baseline gap-3">
-                <span class="tabular text-4xl font-medium leading-none text-zinc-800 dark:text-white">
-                    {{ $hours($ledger->publicHolidaysRemaining()) }}
-                </span>
-                <span class="text-sm text-zinc-500 dark:text-zinc-400">
-                    hours of {{ $hours($ledger->publicHolidayEntitlement()) }} left over
-                </span>
+            <div class="flex justify-between">
+                <dt class="text-zinc-500 dark:text-zinc-400">
+                    {{ $ledger->publicHolidayAdjustment() >= 0 ? 'Public holidays left over' : 'Public holidays over the allowance' }}
+                </dt>
+                <dd class="tabular {{ $ledger->publicHolidayAdjustment() < 0 ? 'text-deficit dark:text-deficit-bright' : 'text-surplus dark:text-surplus-bright' }}">
+                    {{ $ledger->publicHolidayAdjustment() > 0 ? '+' : '' }}{{ $hours($ledger->publicHolidayAdjustment()) }}
+                </dd>
             </div>
 
-            <dl class="mt-4 flex flex-col gap-1 text-sm">
-                <div class="flex justify-between">
-                    <dt class="text-zinc-500 dark:text-zinc-400">
-                        {{ config('leave.public_holiday_days') }} days at your hours
-                        @if (config('leave.prorate_public_holidays')) and weeks @endif
-                    </dt>
-                    <dd class="tabular">{{ $hours($ledger->publicHolidayEntitlement()) }}</dd>
-                </div>
-                <div class="flex justify-between">
-                    <dt class="text-zinc-500 dark:text-zinc-400">Taken by bank holidays</dt>
-                    <dd class="tabular">{{ $hours($ledger->publicHolidaysUsed()) }}</dd>
-                </div>
-                <div class="flex justify-between border-t border-zinc-200 pt-1 font-medium dark:border-zinc-700">
-                    <dt class="{{ $ledger->publicHolidayAdjustment() < 0 ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-500 dark:text-zinc-400' }}">
-                        {{ $ledger->publicHolidayAdjustment() < 0 ? 'Taken from bookable leave' : 'Goes to bookable leave' }}
-                    </dt>
-                    <dd class="tabular {{ $ledger->publicHolidayAdjustment() < 0 ? 'text-deficit dark:text-deficit-bright' : 'text-surplus dark:text-surplus-bright' }}">
-                        {{ $hours(abs($ledger->publicHolidayAdjustment())) }}
-                    </dd>
-                </div>
-            </dl>
-        </section>
-    </div>
+            <div class="flex justify-between ps-4 text-xs text-zinc-400 dark:text-zinc-500">
+                <dt>
+                    {{ config('leave.public_holiday_days') }} days at your hours
+                    @if (config('leave.prorate_public_holidays')) and weeks @endif
+                </dt>
+                <dd class="tabular">{{ $hours($ledger->publicHolidayEntitlement()) }}</dd>
+            </div>
+
+            <div class="flex justify-between ps-4 text-xs text-zinc-400 dark:text-zinc-500">
+                <dt>less taken by bank holidays</dt>
+                <dd class="tabular">{{ $hours($ledger->publicHolidaysUsed()) }}</dd>
+            </div>
+
+            <div class="mt-1 flex justify-between border-t border-zinc-200 pt-1 font-medium dark:border-zinc-700">
+                <dt class="text-zinc-500 dark:text-zinc-400">Entitlement</dt>
+                <dd class="tabular">{{ $hours($ledger->annualEntitlement()) }}</dd>
+            </div>
+
+            <div class="flex justify-between">
+                <dt class="text-zinc-500 dark:text-zinc-400">Booked</dt>
+                <dd class="tabular">{{ $hours($ledger->annualBooked()) }}</dd>
+            </div>
+        </dl>
+    </section>
 
     <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
         You work <span class="tabular">{{ $hours($ledger->weeklyHours()) }}</span>h a week against a full time
