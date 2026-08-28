@@ -48,28 +48,35 @@ it('pro-rata s the pattern against a full time week', function () {
         ->and($ledger->yearlyHours())->toBe(834.24);
 });
 
-it('pro-rata s the public holiday allowance by pattern and contracted weeks', function () {
+it('gives the public holiday allowance in full, whatever the paid weeks', function () {
     partTimePattern();
 
-    // 8 days x 7.5h x 0.4267 x (48 / 52.14)
-    expect((new LeaveLedger(new LeaveYear(2026)))->publicHolidayEntitlement())->toBe(23.57);
+    // 8 days x 7.5h x 0.4267. Bank holidays fall when they fall.
+    expect((new LeaveLedger(new LeaveYear(2026)))->publicHolidayEntitlement())->toBe(25.6);
 });
 
-it('pro-rata s the bookable entitlement the same way', function () {
+it('pro-rata s the public holiday allowance too when asked to', function () {
+    partTimePattern();
+    config(['leave.prorate_public_holidays' => true]);
+
+    expect((new LeaveLedger(new LeaveYear(2026)))->publicHolidayEntitlement())->toBe(23.47);
+});
+
+it('pro-rata s the bookable entitlement by the weeks paid', function () {
     partTimePattern();
 
-    // 27 days x 7.5h x 0.4267 x (48 / 52.14)
-    expect((new LeaveLedger(new LeaveYear(2026)))->baseEntitlement())->toBe(79.55);
+    // 27 days x 7.5h x 0.4267 x (47.8 / 52.14)
+    expect((new LeaveLedger(new LeaveYear(2026)))->baseEntitlement())->toBe(79.21);
 });
 
-it('drops the four non-contracted weeks from both entitlements', function () {
+it('earns leave only for the weeks it is paid', function () {
     partTimePattern();
 
     $ledger = new LeaveLedger(new LeaveYear(2026));
 
-    expect($ledger->contractedWeeks())->toBe(48.0)
-        ->and($ledger->yearFraction())->toBe(0.920598);
-})->note('Four weeks off in August is four weeks of entitlement not earned.');
+    expect($ledger->contractedWeeks())->toBe(47.8)
+        ->and($ledger->yearFraction())->toBe(0.916763);
+})->note('August is unpaid, so those weeks earn no leave.');
 
 it('uses an awarded figure instead of the calculation when one is set', function () {
     partTimePattern();
@@ -117,11 +124,11 @@ it('adds the unspent allowance to bookable leave', function () {
 
     $ledger = new LeaveLedger(new LeaveYear(2026));
 
-    // 23.57h allowance, 4.00h taken by the one Monday.
-    expect($ledger->publicHolidayAdjustment())->toBe(19.57)
-        ->and($ledger->publicHolidaySurplus())->toBe(19.57)
+    // 25.60h allowance, 4.00h taken by the one Monday.
+    expect($ledger->publicHolidayAdjustment())->toBe(21.6)
+        ->and($ledger->publicHolidaySurplus())->toBe(21.6)
         ->and($ledger->publicHolidayShortfall())->toBe(0.0)
-        ->and($ledger->annualEntitlement())->toBe(79.55 + 19.57);
+        ->and($ledger->annualEntitlement())->toBe(100.81);
 })->note('Surplus public holiday hours end up in the leave balance.');
 
 it('takes the shortfall out of bookable leave', function () {
@@ -136,9 +143,9 @@ it('takes the shortfall out of bookable leave', function () {
 
     expect($ledger->publicHolidaysUsed())->toBe(28.0)
         ->and($ledger->publicHolidaySurplus())->toBe(0.0)
-        ->and($ledger->publicHolidayShortfall())->toBe(4.43)
-        ->and($ledger->annualEntitlement())->toBe(75.12)
-        ->and($ledger->annualRemaining())->toBe(75.12);
+        ->and($ledger->publicHolidayShortfall())->toBe(2.4)
+        ->and($ledger->annualEntitlement())->toBe(76.81)
+        ->and($ledger->annualRemaining())->toBe(76.81);
 })->note('This is the number a part time worker actually wants: leave spent on bank holidays.');
 
 /*
@@ -156,8 +163,8 @@ it('draws booked leave from the bookable pot', function () {
     $ledger = new LeaveLedger(new LeaveYear(2026));
 
     expect($ledger->annualBooked())->toBe(8.0)
-        ->and($ledger->annualEntitlement())->toBe(103.12)
-        ->and($ledger->annualRemaining())->toBe(95.12);
+        ->and($ledger->annualEntitlement())->toBe(104.81)
+        ->and($ledger->annualRemaining())->toBe(96.81);
 });
 
 it('ignores leave booked in another leave year', function () {

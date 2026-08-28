@@ -170,7 +170,7 @@ new class extends Component {
             <dl class="mt-4 flex flex-col gap-1 text-sm">
                 <div class="flex justify-between">
                     <dt class="text-zinc-500 dark:text-zinc-400">
-                        {{ config('leave.annual_leave_days') }} days, pro rata
+                        {{ config('leave.annual_leave_days') }} days at your hours and weeks
                     </dt>
                     <dd class="tabular">{{ $hours($ledger->baseEntitlement()) }}</dd>
                 </div>
@@ -208,7 +208,8 @@ new class extends Component {
             <dl class="mt-4 flex flex-col gap-1 text-sm">
                 <div class="flex justify-between">
                     <dt class="text-zinc-500 dark:text-zinc-400">
-                        {{ config('leave.public_holiday_days') }} days, pro rata
+                        {{ config('leave.public_holiday_days') }} days at your hours
+                        @if (config('leave.prorate_public_holidays')) and weeks @endif
                     </dt>
                     <dd class="tabular">{{ $hours($ledger->publicHolidayEntitlement()) }}</dd>
                 </div>

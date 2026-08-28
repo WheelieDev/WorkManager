@@ -104,11 +104,12 @@ class LeaveLedger
     /**
      * Turn full time days into the hours they are worth here.
      */
-    protected function daysToHours(float $days): float
+    protected function daysToHours(float $days, bool $byWeeks = true): float
     {
         $dayLength = $this->fullTimeWeeklyHours() / 5;
+        $weeks = $byWeeks ? $this->yearFraction() : 1.0;
 
-        return round($days * $dayLength * $this->fraction() * $this->yearFraction(), 2);
+        return round($days * $dayLength * $this->fraction() * $weeks, 2);
     }
 
     /**
@@ -161,7 +162,10 @@ class LeaveLedger
      */
     public function publicHolidayEntitlement(): float
     {
-        return $this->daysToHours((float) config('leave.public_holiday_days'));
+        return $this->daysToHours(
+            (float) config('leave.public_holiday_days'),
+            (bool) config('leave.prorate_public_holidays'),
+        );
     }
 
     /**

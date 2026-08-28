@@ -36,13 +36,13 @@ return [
     | Contracted Weeks
     |--------------------------------------------------------------------------
     |
-    | The weeks of the year actually under contract. Four weeks off in August
-    | means 48, and both entitlements are pro-rata'd to match. Set to null to
-    | use the whole year.
+    | The weeks of the year actually paid. Both entitlements are pro-rata'd to
+    | match, since weeks not under contract are weeks of entitlement not
+    | earned. Set to null to use the whole year.
     |
     */
 
-    'contracted_weeks' => 48,
+    'contracted_weeks' => 47.8,
 
     /*
     |--------------------------------------------------------------------------
@@ -77,5 +77,19 @@ return [
     */
 
     'public_holiday_days' => 8,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Pro-rata Public Holidays By Weeks
+    |--------------------------------------------------------------------------
+    |
+    | Whether the public holiday allowance is reduced for weeks not paid, as
+    | annual leave is. Bank holidays fall when they fall, so many employers
+    | give the full hours-based share regardless of contracted weeks, and that
+    | is the reading that matches the awarded figure here.
+    |
+    */
+
+    'prorate_public_holidays' => false,
 
 ];
