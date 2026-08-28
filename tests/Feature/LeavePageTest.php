@@ -78,19 +78,66 @@ it('names the leave spent supplementing bank holidays', function () {
         ->assertSee('making up the difference');
 })->note('The whole point of keeping the two pots apart.');
 
-it('books leave for a day', function () {
+it('books a day from the date alone', function () {
     Livewire::test('pages::leave')
         ->call('bookLeave', '2026-09-08')
         ->assertSet('showingForm', true)
-        ->assertSet('hours', '4')
+        ->assertSet('from', '2026-09-08')
+        ->assertSet('to', '2026-09-08')
         ->call('saveLeave')
         ->assertHasNoErrors()
         ->assertSet('showingForm', false);
 
     expect(LeaveDay::query()->sole()->hours)->toBe(4.0);
-})->note('The form offers the hours that day actually works.');
+})->note('No hours to type: the pattern says the day is worth four.');
 
-it('books part of a day', function () {
+it('books a range and works out each day from the pattern', function () {
+    // Monday 7 to Friday 11 September. The pattern works Monday to Thursday.
+    Livewire::test('pages::leave')
+        ->call('bookLeave', '2026-09-07')
+        ->set('to', '2026-09-11')
+        ->call('saveLeave')
+        ->assertHasNoErrors();
+
+    expect(LeaveDay::query()->count())->toBe(4)
+        ->and((float) LeaveDay::query()->sum('hours'))->toBe(16.0)
+        ->and(LeaveDay::query()->orderByDesc('date')->first()->date->toDateString())->toBe('2026-09-10');
+})->note('Friday is not worked, so it is not booked.');
+
+it('skips bank holidays inside a range', function () {
+    BankHoliday::factory()->on('2026-12-28', 'Boxing Day')->create();
+
+    Livewire::test('pages::leave')
+        ->call('bookLeave', '2026-12-28')
+        ->set('to', '2026-12-31')
+        ->call('saveLeave')
+        ->assertHasNoErrors();
+
+    expect(LeaveDay::query()->pluck('date')->map->toDateString()->all())
+        ->toBe(['2026-12-29', '2026-12-30', '2026-12-31']);
+})->note('A bank holiday is already paid for; booking leave on it would waste it.');
+
+it('skips a month the pattern does not work', function () {
+    Livewire::test('pages::leave')
+        ->call('bookLeave', '2026-08-24')
+        ->set('to', '2026-08-28')
+        ->call('saveLeave')
+        ->assertHasErrors('from');
+
+    expect(LeaveDay::query()->count())->toBe(0);
+});
+
+it('previews the days before they are booked', function () {
+    Livewire::test('pages::leave')
+        ->call('bookLeave', '2026-09-07')
+        ->set('to', '2026-09-11')
+        ->assertSee('4 days')
+        ->assertSee('16.00h')
+        ->assertSee('Mon 7 Sep')
+        ->assertDontSee('Fri 11 Sep');
+});
+
+it('books part of a single day', function () {
     Livewire::test('pages::leave')
         ->call('bookLeave', '2026-09-08')
         ->set('hours', '2')
@@ -100,11 +147,37 @@ it('books part of a day', function () {
     expect(LeaveDay::query()->sole()->hours)->toBe(2.0);
 });
 
+it('never books more hours than the day is worth', function () {
+    Livewire::test('pages::leave')
+        ->call('bookLeave', '2026-09-08')
+        ->set('hours', '9')
+        ->call('saveLeave')
+        ->assertHasNoErrors();
+
+    expect(LeaveDay::query()->sole()->hours)->toBe(4.0);
+});
+
+it('carries the end of the range along with the start', function () {
+    Livewire::test('pages::leave')
+        ->call('bookLeave', '2026-09-07')
+        ->set('from', '2026-09-14')
+        ->assertSet('to', '2026-09-14');
+});
+
+it('refuses a range that ends before it starts', function () {
+    Livewire::test('pages::leave')
+        ->call('bookLeave', '2026-09-14')
+        ->set('to', '2026-09-07')
+        ->call('saveLeave')
+        ->assertHasErrors('to');
+});
+
 it('changes a booking', function () {
     $leave = LeaveDay::factory()->on('2026-09-08', 4.0)->create();
 
     Livewire::test('pages::leave')
         ->call('editLeave', $leave)
+        ->assertSet('from', '2026-09-08')
         ->assertSet('hours', '4')
         ->set('hours', '2')
         ->call('saveLeave')

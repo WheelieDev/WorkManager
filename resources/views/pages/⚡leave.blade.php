@@ -6,6 +6,7 @@ use App\Support\FlexiCalculator;
 use App\Support\LeaveLedger;
 use App\Support\LeaveYear;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 
@@ -15,7 +16,9 @@ new class extends Component {
 
     public ?int $editingId = null;
 
-    public string $date = '';
+    public string $from = '';
+
+    public string $to = '';
 
     public string $hours = '';
 
@@ -54,16 +57,26 @@ new class extends Component {
     }
 
     /**
-     * Open the form to book leave, defaulting to a whole day of the pattern.
+     * Open the form to book leave.
      */
     public function bookLeave(?string $date = null): void
     {
         $this->reset('editingId', 'hours');
         $this->resetValidation();
 
-        $this->date = $date ?? now()->toDateString();
-        $this->hours = (string) ((new FlexiCalculator)->patternHours(Carbon::parse($this->date)) ?: 0);
+        $this->from = $date ?? now()->toDateString();
+        $this->to = $this->from;
         $this->showingForm = true;
+    }
+
+    /**
+     * Keep the end of the range from falling behind the start.
+     */
+    public function updatedFrom(string $value): void
+    {
+        if ($this->to === '' || $this->to < $value) {
+            $this->to = $value;
+        }
     }
 
     /**
@@ -74,36 +87,93 @@ new class extends Component {
         $this->resetValidation();
 
         $this->editingId = $leave->id;
-        $this->date = $leave->date->toDateString();
+        $this->from = $leave->date->toDateString();
+        $this->to = $this->from;
         $this->hours = (string) $leave->hours;
         $this->showingForm = true;
     }
 
     /**
-     * Save the booking.
+     * Get the days in the chosen range that are worth booking, with the hours
+     * the pattern asks for on each.
+     *
+     * Days the pattern does not work are skipped, and so are bank holidays,
+     * which are already paid for.
+     *
+     * @return Collection<int, array{date: Carbon, hours: float}>
+     */
+    public function daysInRange(): Collection
+    {
+        if ($this->from === '') {
+            return collect();
+        }
+
+        $from = Carbon::parse($this->from)->startOfDay();
+        $to = Carbon::parse($this->to ?: $this->from)->startOfDay();
+
+        if ($to->lessThan($from) || $from->diffInDays($to) > 366) {
+            return collect();
+        }
+
+        $calculator = new FlexiCalculator;
+        $days = collect();
+
+        for ($date = $from->copy(); $date->lessThanOrEqualTo($to); $date = $date->addDay()) {
+            $hours = $calculator->isBankHoliday($date) ? 0.0 : $calculator->patternHours($date);
+
+            if ($hours > 0) {
+                $days->push(['date' => $date->copy(), 'hours' => $hours]);
+            }
+        }
+
+        return $days;
+    }
+
+    /**
+     * Save the booking, or the whole range of them.
      */
     public function saveLeave(): void
     {
-        $validated = $this->validate([
-            'date' => ['required', 'date'],
-            'hours' => ['required', 'numeric', 'min:0.25', 'max:24'],
+        $this->validate([
+            'from' => ['required', 'date'],
+            'to' => ['required', 'date', 'after_or_equal:from'],
+            'hours' => ['nullable', 'numeric', 'min:0.25', 'max:24'],
         ], [
+            'to.after_or_equal' => 'The last day cannot be before the first.',
             'hours.min' => 'Book at least a quarter of an hour.',
         ]);
 
-        $attributes = ['hours' => round((float) $validated['hours'], 2)];
+        $days = $this->daysInRange();
 
-        if ($this->editingId !== null) {
-            LeaveDay::query()->findOrFail($this->editingId)->update($attributes + ['date' => $validated['date']]);
-        } else {
+        if ($days->isEmpty()) {
+            $this->addError('from', 'You do not work any of those days, so there is nothing to book.');
+
+            return;
+        }
+
+        // A single day may be booked as part of a day; a range is taken whole.
+        $partDay = $days->count() === 1 && $this->hours !== '' ? round((float) $this->hours, 2) : null;
+
+        foreach ($days as $day) {
+            $hours = $partDay !== null ? min($partDay, $day['hours']) : $day['hours'];
+
+            if ($this->editingId !== null) {
+                LeaveDay::query()->findOrFail($this->editingId)->update([
+                    'date' => $day['date']->toDateString(),
+                    'hours' => $hours,
+                ]);
+
+                continue;
+            }
+
             LeaveDay::query()->updateOrCreate(
-                ['date' => $validated['date'], 'type' => LeaveType::Annual],
-                $attributes,
+                ['date' => $day['date']->toDateString(), 'type' => LeaveType::Annual],
+                ['hours' => $hours],
             );
         }
 
         $this->showingForm = false;
-        $this->year = LeaveYear::forDate(Carbon::parse($validated['date']))->year;
+        $this->year = LeaveYear::forDate($days->first()['date'])->year;
     }
 
     /**
@@ -122,7 +192,11 @@ new class extends Component {
         $year = $this->leaveYear();
         $ledger = new LeaveLedger($year);
 
+        $days = $this->showingForm ? $this->daysInRange() : collect();
+
         return [
+            'chosenDays' => $days,
+            'chosenHours' => round($days->sum('hours'), 2),
             'leaveYear' => $year,
             'ledger' => $ledger,
             'holidays' => $ledger->publicHolidays(),
@@ -282,25 +356,66 @@ new class extends Component {
         @endforelse
     </section>
 
-    <flux:modal wire:model="showingForm" class="max-w-sm">
+    <flux:modal wire:model="showingForm" class="max-w-md">
         <form wire:submit="saveLeave" class="flex flex-col gap-4">
             <flux:heading size="lg">{{ $editingId ? 'Change leave' : 'Book leave' }}</flux:heading>
 
-            <flux:field>
-                <flux:label>Date</flux:label>
-                <flux:input type="date" wire:model="date" />
-                <flux:error name="date" />
-            </flux:field>
+            <div class="flex items-end gap-3">
+                <flux:field>
+                    <flux:label>{{ $editingId ? 'Date' : 'From' }}</flux:label>
+                    <flux:input type="date" wire:model.live="from" />
+                </flux:field>
 
-            <flux:field>
-                <flux:label>Hours</flux:label>
-                <flux:description>A whole day is whatever your pattern works that day.</flux:description>
-                <flux:input type="number" step="0.25" min="0.25" wire:model="hours" />
-                <flux:error name="hours" />
-            </flux:field>
+                @unless ($editingId)
+                    <flux:field>
+                        <flux:label>To</flux:label>
+                        <flux:input type="date" wire:model.live="to" />
+                    </flux:field>
+                @endunless
+            </div>
+
+            <flux:error name="from" />
+            <flux:error name="to" />
+
+            {{-- What the pattern says those dates are worth. --}}
+            <div class="rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-700">
+                @if ($chosenDays->isEmpty())
+                    <flux:text variant="subtle" class="text-sm">
+                        You do not work any of those days.
+                    </flux:text>
+                @else
+                    <div class="flex items-baseline justify-between">
+                        <flux:text variant="strong" class="text-sm">
+                            {{ $chosenDays->count() }} {{ Str::plural('day', $chosenDays->count()) }}
+                        </flux:text>
+                        <span class="tabular text-sm font-medium">{{ $hours($chosenHours) }}h</span>
+                    </div>
+
+                    <div class="mt-1 flex max-h-32 flex-col gap-0.5 overflow-y-auto">
+                        @foreach ($chosenDays as $day)
+                            <div class="flex justify-between text-xs text-zinc-500 dark:text-zinc-400"
+                                 wire:key="chosen-{{ $day['date']->toDateString() }}">
+                                <span>{{ $day['date']->format('D j M') }}</span>
+                                <span class="tabular">{{ $hours($day['hours']) }}h</span>
+                            </div>
+                        @endforeach
+                    </div>
+                @endif
+            </div>
+
+            {{-- Part days only make sense for one day at a time. --}}
+            @if ($chosenDays->count() === 1)
+                <flux:field>
+                    <flux:label>Hours</flux:label>
+                    <flux:description>Leave blank for the whole day.</flux:description>
+                    <flux:input type="number" step="0.25" min="0.25" wire:model="hours"
+                                placeholder="{{ $hours($chosenHours) }}" />
+                    <flux:error name="hours" />
+                </flux:field>
+            @endif
 
             <div class="flex gap-2">
-                <flux:button type="submit" variant="primary">Save</flux:button>
+                <flux:button type="submit" variant="primary" :disabled="$chosenDays->isEmpty()">Save</flux:button>
                 <flux:button variant="ghost" wire:click="$set('showingForm', false)">Cancel</flux:button>
             </div>
         </form>
