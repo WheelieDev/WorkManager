@@ -199,7 +199,6 @@ new class extends Component {
             'chosenHours' => round($days->sum('hours'), 2),
             'leaveYear' => $year,
             'ledger' => $ledger,
-            'holidays' => $ledger->publicHolidays(),
             'bookings' => $ledger->booked(),
         ];
     }
@@ -299,67 +298,92 @@ new class extends Component {
         @endif
     </p>
 
-    {{-- Bank holidays, and what each one costs. --}}
-    <section class="mt-8">
-        <div class="mb-2 flex items-baseline justify-between border-b border-zinc-200 pb-1.5 text-[0.7rem] font-medium uppercase tracking-[0.16em] text-zinc-400 dark:border-zinc-700 dark:text-zinc-500">
-            <span>Bank holidays</span>
-            <span>Cost</span>
-        </div>
-
-        @forelse ($holidays as $entry)
-            <div class="flex items-center justify-between gap-3 border-b border-zinc-100 py-1.5 text-sm dark:border-zinc-800"
-                 wire:key="bh-{{ $entry['holiday']->id }}">
-                <div class="flex items-baseline gap-3">
-                    <span class="tabular w-28 shrink-0 text-zinc-400 dark:text-zinc-500">{{ $entry['holiday']->date->format('D j M Y') }}</span>
-                    <span class="text-zinc-700 dark:text-zinc-200">{{ $entry['holiday']->title }}</span>
-                </div>
-
-                @if ($entry['hours'] > 0)
-                    <span class="tabular text-zinc-700 dark:text-zinc-200">{{ $hours($entry['hours']) }}h</span>
-                @else
-                    <span class="text-xs text-zinc-400 dark:text-zinc-500">not a working day</span>
-                @endif
-            </div>
-        @empty
-            <p class="py-2 text-sm text-zinc-400 dark:text-zinc-500">
-                No bank holidays recorded. Run <code>php artisan bank-holidays:sync</code>.
-            </p>
-        @endforelse
-    </section>
-
     {{-- Booked leave. --}}
     <section class="mt-8">
-        <div class="mb-2 flex items-baseline justify-between border-b border-zinc-200 pb-1.5 text-[0.7rem] font-medium uppercase tracking-[0.16em] text-zinc-400 dark:border-zinc-700 dark:text-zinc-500">
-            <span>Booked leave</span>
-            <span>Hours</span>
+        <div class="flex items-baseline justify-between">
+            <h2 class="text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">
+                Booked leave
+            </h2>
+
+            @if ($bookings->isNotEmpty())
+                <flux:text variant="subtle" class="text-sm">
+                    {{ $bookings->count() }} {{ Str::plural('day', $bookings->count()) }}
+                </flux:text>
+            @endif
         </div>
 
-        @forelse ($bookings as $leave)
-            <div class="group/leave flex items-center justify-between gap-3 border-b border-zinc-100 py-1.5 text-sm dark:border-zinc-800"
-                 wire:key="leave-{{ $leave->id }}">
-                <button type="button" class="flex items-baseline gap-3 text-start hover:underline" wire:click="editLeave({{ $leave->id }})">
-                    <span class="tabular w-28 shrink-0 text-zinc-400 dark:text-zinc-500">{{ $leave->date->format('D j M Y') }}</span>
-                    <span class="text-zinc-700 dark:text-zinc-200">{{ $leave->type->label() }}</span>
-                </button>
+        @if ($bookings->isEmpty())
+            <p class="mt-2 border-t border-zinc-200 pt-3 text-sm text-zinc-400 dark:border-zinc-700 dark:text-zinc-500">
+                No leave booked this year. Choose a first and last day and the hours come from your pattern.
+            </p>
+        @else
+            <div class="mt-2 overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-zinc-200 text-[0.7rem] uppercase tracking-[0.12em] text-zinc-400 dark:border-zinc-700 dark:text-zinc-500">
+                            <th class="py-1.5 text-start font-medium">Date</th>
+                            <th class="py-1.5 text-start font-medium">Taken</th>
+                            <th class="py-1.5 text-end font-medium">Hours</th>
+                            <th class="w-8"><span class="sr-only">Cancel</span></th>
+                        </tr>
+                    </thead>
 
-                <div class="flex items-center gap-3">
-                    @if ($ledger->bookingNote($leave))
-                        <span class="text-xs text-zinc-400 dark:text-zinc-500">{{ $ledger->bookingNote($leave) }}</span>
-                        <span class="tabular text-zinc-400 line-through dark:text-zinc-500">{{ $hours($leave->hours) }}h</span>
-                        <span class="tabular text-zinc-700 dark:text-zinc-200">{{ $hours($ledger->effectiveHours($leave)) }}h</span>
-                    @else
-                        <span class="tabular text-zinc-700 dark:text-zinc-200">{{ $hours($leave->hours) }}h</span>
-                    @endif
-                    <button type="button"
-                            class="text-zinc-300 opacity-0 transition hover:text-deficit focus-visible:opacity-100 group-hover/leave:opacity-100 dark:text-zinc-600"
-                            wire:click="deleteLeave({{ $leave->id }})"
-                            wire:confirm="Cancel this leave?"
-                            aria-label="Cancel leave">&times;</button>
-                </div>
+                    <tbody>
+                        @foreach ($bookings as $leave)
+                            @php
+                                $note = $ledger->bookingNote($leave);
+                                $effective = $ledger->effectiveHours($leave);
+                                $pattern = $ledger->patternHours($leave->date);
+                            @endphp
+
+                            <tr class="group/leave border-b border-zinc-100 dark:border-zinc-800" wire:key="leave-{{ $leave->id }}">
+                                <td class="py-1.5">
+                                    <button type="button" class="tabular text-start text-zinc-700 hover:underline dark:text-zinc-200"
+                                            wire:click="editLeave({{ $leave->id }})">
+                                        {{ $leave->date->format('D j M Y') }}
+                                    </button>
+                                </td>
+
+                                <td class="py-1.5 text-zinc-500 dark:text-zinc-400">
+                                    @if ($note)
+                                        {{ $note }}
+                                    @elseif ($pattern > 0 && $effective >= $pattern)
+                                        Full day
+                                    @else
+                                        Part day
+                                    @endif
+                                </td>
+
+                                <td class="py-1.5 text-end">
+                                    @if ($note)
+                                        <span class="tabular text-zinc-400 line-through dark:text-zinc-500">{{ $hours($leave->hours) }}</span>
+                                        <span class="tabular ms-1 text-zinc-700 dark:text-zinc-200">{{ $hours($effective) }}</span>
+                                    @else
+                                        <span class="tabular text-zinc-700 dark:text-zinc-200">{{ $hours($effective) }}</span>
+                                    @endif
+                                </td>
+
+                                <td class="py-1.5 text-end">
+                                    <button type="button"
+                                            class="text-zinc-300 opacity-0 transition hover:text-deficit focus-visible:opacity-100 group-hover/leave:opacity-100 dark:text-zinc-600"
+                                            wire:click="deleteLeave({{ $leave->id }})"
+                                            wire:confirm="Cancel this leave?"
+                                            aria-label="Cancel leave on {{ $leave->date->format('j F Y') }}">&times;</button>
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+
+                    <tfoot>
+                        <tr class="font-medium">
+                            <td class="py-1.5" colspan="2">Total</td>
+                            <td class="tabular py-1.5 text-end">{{ $hours($ledger->annualBooked()) }}</td>
+                            <td></td>
+                        </tr>
+                    </tfoot>
+                </table>
             </div>
-        @empty
-            <p class="py-2 text-sm text-zinc-400 dark:text-zinc-500">No leave booked this year.</p>
-        @endforelse
+        @endif
     </section>
 
     <flux:modal wire:model="showingForm" class="max-w-md">

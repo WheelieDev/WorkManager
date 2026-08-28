@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Models\BankHoliday;
 use App\Models\LeaveDay;
 use App\Models\WorkPattern;
+use DateTimeInterface;
 use Illuminate\Support\Collection;
 
 /**
@@ -246,6 +247,14 @@ class LeaveLedger
         }
 
         return round(min($leave->hours, $this->calculator->patternHours($leave->date)), 2);
+    }
+
+    /**
+     * Get the hours the pattern asks for on a date.
+     */
+    public function patternHours(DateTimeInterface $date): float
+    {
+        return $this->calculator->patternHours($date);
     }
 
     /**

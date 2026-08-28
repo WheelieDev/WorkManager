@@ -56,16 +56,15 @@ it('does not offer public holidays as a balance of their own', function () {
         ->assertDontSee('Goes to bookable leave');
 });
 
-it('shows what each bank holiday costs', function () {
+it('no longer lists the bank holidays', function () {
     BankHoliday::factory()->on('2026-12-28', 'Boxing Day')->create();
     BankHoliday::factory()->on('2026-12-25', 'Christmas Day')->create();
 
     Livewire::test('pages::leave')
-        ->assertSee('Boxing Day')
-        ->assertSee('4.00h')
-        ->assertSee('Christmas Day')
-        ->assertSee('not a working day');
-});
+        ->assertDontSee('Boxing Day')
+        ->assertDontSee('Christmas Day')
+        ->assertSee('less taken by bank holidays');
+})->note('The breakdown carries the number; the dates are not needed.');
 
 it('names the leave spent supplementing bank holidays', function () {
     foreach (['2026-04-06', '2026-05-04', '2026-05-25', '2026-12-28', '2027-01-04', '2027-02-01', '2027-03-01'] as $date) {
@@ -242,4 +241,44 @@ it('requires signing in', function () {
     auth()->logout();
 
     $this->get(route('leave'))->assertRedirect(route('login'));
+});
+
+/*
+|--------------------------------------------------------------------------
+| The booked leave table
+|--------------------------------------------------------------------------
+*/
+
+it('tabulates the booked leave', function () {
+    LeaveDay::factory()->on('2026-09-07', 4.0)->create();
+    LeaveDay::factory()->on('2026-09-08', 2.0)->create();
+
+    Livewire::test('pages::leave')
+        ->assertSee('Booked leave')
+        ->assertSeeInOrder(['Date', 'Taken', 'Hours'])
+        ->assertSeeInOrder(['Mon 7 Sep 2026', 'Full day', 'Tue 8 Sep 2026', 'Part day'])
+        ->assertSee('2 days')
+        ->assertSee('Total');
+});
+
+it('totals the table by what the leave actually costs', function () {
+    LeaveDay::factory()->on('2026-09-07', 4.0)->create();
+    LeaveDay::factory()->on('2026-09-08', 2.0)->create();
+
+    Livewire::test('pages::leave')->assertSee('6.00');
+});
+
+it('marks a booking that costs nothing in the table', function () {
+    BankHoliday::factory()->on('2026-12-28')->create();
+    LeaveDay::factory()->on('2026-12-28', 4.0)->create();
+
+    Livewire::test('pages::leave')
+        ->assertSee('already a bank holiday')
+        ->assertSee('0.00');
+});
+
+it('invites a first booking when the table is empty', function () {
+    Livewire::test('pages::leave')
+        ->assertSee('No leave booked this year')
+        ->assertSee('the hours come from your pattern');
 });
