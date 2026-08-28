@@ -1,5 +1,7 @@
 <?php
 
+use App\Enums\Weekday;
+use App\Models\WorkPattern;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -44,7 +46,22 @@ expect()->extend('toBeOne', function () {
 |
 */
 
-function something()
+/**
+ * A part time pattern: Monday to Thursday, 09:00 to 13:00, August off.
+ */
+function partTimePattern(string $startDate = '2026-01-01'): WorkPattern
 {
-    // ..
+    $pattern = WorkPattern::factory()->withoutMonths([8])->create(['start_date' => $startDate]);
+
+    foreach (Weekday::cases() as $weekday) {
+        $worked = $weekday !== Weekday::Friday;
+
+        $pattern->days()->create([
+            'weekday' => $weekday,
+            'start_time' => $worked ? '09:00' : null,
+            'end_time' => $worked ? '13:00' : null,
+        ]);
+    }
+
+    return $pattern;
 }

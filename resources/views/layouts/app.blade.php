@@ -43,6 +43,10 @@
                         Timesheet
                     </flux:navlist.item>
 
+                    <flux:navlist.item icon="sun" :href="route('leave')" :current="request()->routeIs('leave')" wire:navigate>
+                        Leave
+                    </flux:navlist.item>
+
                     <flux:navlist.item icon="calendar-days" :href="route('patterns.index')" :current="request()->routeIs('patterns.*')" wire:navigate>
                         Working patterns
                     </flux:navlist.item>

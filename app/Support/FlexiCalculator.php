@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Enums\Weekday;
 use App\Models\BankHoliday;
+use App\Models\LeaveDay;
 use App\Models\WorkPattern;
 use App\Models\WorkSession;
 use DateTimeInterface;
@@ -36,15 +37,29 @@ class FlexiCalculator
     protected ?array $bankHolidays = null;
 
     /**
+     * Cached leave hours, keyed by date.
+     *
+     * @var array<string, float>|null
+     */
+    protected ?array $leave = null;
+
+    /**
      * Get the hours the pattern expects to be worked on the given date.
      */
     public function expectedHours(DateTimeInterface $date): float
     {
-        $date = Carbon::parse($date)->startOfDay();
+        return round(max(0, $this->patternHours($date) - $this->coveredHours($date)), 2);
+    }
 
-        if ($this->isBankHoliday($date)) {
-            return 0.0;
-        }
+    /**
+     * Get the hours the pattern asks for on a date, before anything covers it.
+     *
+     * This is the figure a bank holiday or a day of leave is worth, which is
+     * why it ignores both.
+     */
+    public function patternHours(DateTimeInterface $date): float
+    {
+        $date = Carbon::parse($date)->startOfDay();
 
         $weekday = Weekday::tryFrom($date->dayOfWeekIso);
 
@@ -59,6 +74,41 @@ class FlexiCalculator
         }
 
         return $pattern->days->firstWhere('weekday', $weekday)?->hours() ?? 0.0;
+    }
+
+    /**
+     * Get the hours on a date already accounted for without working them.
+     *
+     * A bank holiday covers the whole day. Leave covers the hours booked, so
+     * a morning off leaves the afternoon still expected.
+     */
+    public function coveredHours(DateTimeInterface $date): float
+    {
+        $pattern = $this->patternHours($date);
+
+        if ($pattern <= 0.0) {
+            return 0.0;
+        }
+
+        if ($this->isBankHoliday($date)) {
+            return $pattern;
+        }
+
+        return round(min($pattern, $this->leaveHours($date)), 2);
+    }
+
+    /**
+     * Get the hours of leave booked on a date.
+     */
+    public function leaveHours(DateTimeInterface $date): float
+    {
+        $this->leave ??= LeaveDay::query()
+            ->get()
+            ->groupBy(fn (LeaveDay $leave): string => $leave->date->toDateString())
+            ->map(fn ($onDay): float => round($onDay->sum('hours'), 2))
+            ->all();
+
+        return $this->leave[Carbon::parse($date)->toDateString()] ?? 0.0;
     }
 
     /**

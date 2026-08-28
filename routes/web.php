@@ -22,6 +22,8 @@ Route::middleware('auth')->group(function () {
 
     Route::livewire('/timesheet', 'pages::timesheet')->name('timesheet');
 
+    Route::livewire('/leave', 'pages::leave')->name('leave');
+
     Route::livewire('/patterns', 'pages::patterns.index')->name('patterns.index');
     Route::livewire('/patterns/create', 'pages::patterns.form')->name('patterns.create');
     Route::livewire('/patterns/{pattern}/edit', 'pages::patterns.form')->name('patterns.edit');

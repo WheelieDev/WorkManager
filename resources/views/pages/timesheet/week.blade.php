@@ -60,6 +60,12 @@
                         </div>
                     @endif
 
+                    @if ($d['leave'] > 0)
+                        <div class="truncate text-[0.7rem] text-zinc-500 dark:text-zinc-400" title="Annual leave">
+                            Leave {{ number_format($d['leave'], 2) }}h
+                        </div>
+                    @endif
+
                     <div class="min-h-[1.25rem]">
                         @forelse ($d['sessions'] as $session)
                             <div class="group/entry flex items-center justify-between gap-1" wire:key="session-{{ $session->id }}">

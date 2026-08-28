@@ -256,6 +256,7 @@ new class extends Component {
             'isFuture' => $date->copy()->startOfDay()->isFuture(),
             'isTracked' => $calculator->isTracked($date),
             'bankHoliday' => $calculator->bankHolidayTitle($date),
+            'leave' => $calculator->leaveHours($date),
             'isVisible' => $this->allDays
                 || $calculator->isPatternWorkingDay($date)
                 || $onDay->isNotEmpty()

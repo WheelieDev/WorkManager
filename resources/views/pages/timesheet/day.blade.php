@@ -18,6 +18,12 @@
             @unless ($day['isTracked'])
                 <span class="text-xs text-zinc-400 dark:text-zinc-500">Before tracking began</span>
             @endunless
+
+            @if ($day['leave'] > 0)
+                <span class="text-xs text-zinc-500 dark:text-zinc-400">
+                    Annual leave {{ number_format($day['leave'], 2) }}h
+                </span>
+            @endif
         </div>
 
         <div class="flex items-baseline gap-3 text-sm">
