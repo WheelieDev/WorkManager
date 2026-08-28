@@ -1,6 +1,8 @@
 <?php
 
 use App\Enums\Weekday;
+use App\Models\BankHoliday;
+use App\Models\LeaveDay;
 use App\Models\User;
 use App\Models\WorkPattern;
 use App\Models\WorkSession;
@@ -96,4 +98,62 @@ it('warns when past the negative limit without mentioning carry', function () {
     Livewire::test('pages::dashboard')
         ->assertSee('beyond the 16h limit')
         ->assertDontSee('Only 16h will carry into the next period.');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Leave
+|--------------------------------------------------------------------------
+*/
+
+it('shows both leave pots', function () {
+    WorkPattern::query()->delete();
+    partTimePattern();
+
+    Livewire::test('pages::dashboard')
+        ->assertSee('Leave')
+        ->assertSee('1 Apr 2026 - 31 Mar 2027')
+        ->assertSee('Bookable')
+        ->assertSee('84.50')
+        ->assertSee('Public holidays')
+        ->assertSee('25.60');
+});
+
+it('counts booked leave off the bookable pot', function () {
+    WorkPattern::query()->delete();
+    partTimePattern();
+
+    LeaveDay::factory()->on('2026-09-08', 4.0)->create();
+
+    Livewire::test('pages::dashboard')->assertSee('80.50');
+});
+
+it('warns when bank holidays are eating into bookable leave', function () {
+    WorkPattern::query()->delete();
+    partTimePattern();
+
+    foreach (['2026-04-06', '2026-05-04', '2026-05-25', '2026-12-28', '2027-01-04', '2027-02-01', '2027-03-01'] as $date) {
+        BankHoliday::factory()->on($date)->create();
+    }
+
+    Livewire::test('pages::dashboard')
+        ->assertSee('2.40h more than your allowance covers')
+        ->assertSee('making up the difference');
+});
+
+it('says nothing about a shortfall when there is none', function () {
+    WorkPattern::query()->delete();
+    partTimePattern();
+
+    Livewire::test('pages::dashboard')->assertDontSee('making up the difference');
+});
+
+it('flags a day taken as leave', function () {
+    WorkPattern::query()->delete();
+    partTimePattern();
+
+    $this->travelTo('2026-09-08 10:00');
+    LeaveDay::factory()->on('2026-09-08', 4.0)->create();
+
+    Livewire::test('pages::dashboard')->assertSee('On leave 4.00h');
 });

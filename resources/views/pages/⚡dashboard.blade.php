@@ -3,6 +3,8 @@
 use App\Models\WorkSession;
 use App\Support\FlexiCalculator;
 use App\Support\FlexiPeriod;
+use App\Support\LeaveLedger;
+use App\Support\LeaveYear;
 use Livewire\Component;
 
 new class extends Component {
@@ -51,7 +53,11 @@ new class extends Component {
         $balance = $calculator->balanceFor($period);
         $limit = FlexiPeriod::limit();
 
+        $ledger = new LeaveLedger(LeaveYear::current());
+
         return [
+            'ledger' => $ledger,
+            'leaveToday' => $calculator->leaveHours(now()),
             'running' => WorkSession::current(),
             'workedToday' => $calculator->workedHours(now()),
             'expectedToday' => $calculator->expectedHours(now()),
@@ -73,6 +79,9 @@ new class extends Component {
         {{ now()->format('l j F Y') }}
         @if ($bankHolidayToday)
             &middot; <flux:badge size="sm" color="purple" inset="top bottom">{{ $bankHolidayToday }}</flux:badge>
+        @endif
+        @if ($leaveToday > 0)
+            &middot; <flux:badge size="sm" color="zinc" inset="top bottom">On leave {{ number_format($leaveToday, 2) }}h</flux:badge>
         @endif
     </flux:text>
 
@@ -181,6 +190,60 @@ new class extends Component {
             <flux:button :href="route('timesheet')" variant="subtle" class="mt-4" wire:navigate>
                 Open timesheet
             </flux:button>
+        </flux:card>
+
+        {{-- Leave sits beside the flexi balance but is kept plainly apart from
+             it: the two pots never trade with each other. --}}
+        <flux:card class="lg:col-span-3">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                    <flux:heading>Leave</flux:heading>
+                    <flux:text variant="subtle" class="mt-1">{{ $ledger->year->label() }}</flux:text>
+                </div>
+
+                <flux:button :href="route('leave')" variant="subtle" wire:navigate>Book leave</flux:button>
+            </div>
+
+            <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                <div>
+                    <flux:text variant="subtle" class="text-sm">Bookable</flux:text>
+
+                    <div class="mt-1 flex items-baseline gap-2">
+                        <span class="tabular text-3xl font-semibold {{ $ledger->isOverdrawn() ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-800 dark:text-white' }}">
+                            {{ number_format($ledger->annualRemaining(), 2) }}
+                        </span>
+                        <flux:text variant="subtle">
+                            of {{ number_format($ledger->annualEntitlement(), 2) }}h left
+                            @if ($ledger->asDays($ledger->annualRemaining()) !== null)
+                                &middot; about {{ $ledger->asDays($ledger->annualRemaining()) }} days
+                            @endif
+                        </flux:text>
+                    </div>
+                </div>
+
+                <div>
+                    <flux:text variant="subtle" class="text-sm">Public holidays</flux:text>
+
+                    <div class="mt-1 flex items-baseline gap-2">
+                        <span class="tabular text-3xl font-semibold text-zinc-800 dark:text-white">
+                            {{ number_format($ledger->publicHolidaysRemaining(), 2) }}
+                        </span>
+                        <flux:text variant="subtle">
+                            of {{ number_format($ledger->publicHolidayEntitlement(), 2) }}h left
+                        </flux:text>
+                    </div>
+                </div>
+            </div>
+
+            @if ($ledger->publicHolidayShortfall() > 0)
+                <flux:callout variant="warning" icon="exclamation-triangle" class="mt-4">
+                    <flux:callout.text>
+                        Bank holidays have used
+                        {{ number_format($ledger->publicHolidayShortfall(), 2) }}h more than your allowance covers,
+                        so that much bookable leave is making up the difference.
+                    </flux:callout.text>
+                </flux:callout>
+            @endif
         </flux:card>
     </div>
 </div>
