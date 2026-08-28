@@ -229,13 +229,13 @@ new class extends Component {
                             {{ number_format($ledger->publicHolidaysRemaining(), 2) }}
                         </span>
                         <flux:text variant="subtle">
-                            of {{ number_format($ledger->publicHolidayEntitlement(), 2) }}h left
+                            of {{ number_format($ledger->publicHolidayEntitlement(), 2) }}h left over
                         </flux:text>
                     </div>
                 </div>
             </div>
 
-            @if ($ledger->publicHolidayShortfall() > 0)
+            @if ($ledger->publicHolidayAdjustment() < 0)
                 <flux:callout variant="warning" icon="exclamation-triangle" class="mt-4">
                     <flux:callout.text>
                         Bank holidays have used
@@ -243,6 +243,11 @@ new class extends Component {
                         so that much bookable leave is making up the difference.
                     </flux:callout.text>
                 </flux:callout>
+            @elseif ($ledger->publicHolidayAdjustment() > 0)
+                <flux:text variant="subtle" class="mt-4 block text-sm">
+                    Includes {{ number_format($ledger->publicHolidayAdjustment(), 2) }}h of unspent public holiday
+                    allowance, added to your bookable leave.
+                </flux:text>
             @endif
         </flux:card>
     </div>

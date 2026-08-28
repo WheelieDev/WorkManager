@@ -114,9 +114,9 @@ it('shows both leave pots', function () {
         ->assertSee('Leave')
         ->assertSee('1 Apr 2026 - 31 Mar 2027')
         ->assertSee('Bookable')
-        ->assertSee('84.50')
+        ->assertSee('103.12')
         ->assertSee('Public holidays')
-        ->assertSee('25.60');
+        ->assertSee('23.57');
 });
 
 it('counts booked leave off the bookable pot', function () {
@@ -125,7 +125,7 @@ it('counts booked leave off the bookable pot', function () {
 
     LeaveDay::factory()->on('2026-09-08', 4.0)->create();
 
-    Livewire::test('pages::dashboard')->assertSee('80.50');
+    Livewire::test('pages::dashboard')->assertSee('99.12');
 });
 
 it('warns when bank holidays are eating into bookable leave', function () {
@@ -137,7 +137,7 @@ it('warns when bank holidays are eating into bookable leave', function () {
     }
 
     Livewire::test('pages::dashboard')
-        ->assertSee('2.40h more than your allowance covers')
+        ->assertSee('4.43h more than your allowance covers')
         ->assertSee('making up the difference');
 });
 
@@ -145,7 +145,9 @@ it('says nothing about a shortfall when there is none', function () {
     WorkPattern::query()->delete();
     partTimePattern();
 
-    Livewire::test('pages::dashboard')->assertDontSee('making up the difference');
+    Livewire::test('pages::dashboard')
+        ->assertDontSee('making up the difference')
+        ->assertSee('added to your bookable leave');
 });
 
 it('flags a day taken as leave', function () {

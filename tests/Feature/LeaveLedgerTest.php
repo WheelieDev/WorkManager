@@ -48,24 +48,42 @@ it('pro-rata s the pattern against a full time week', function () {
         ->and($ledger->yearlyHours())->toBe(834.24);
 });
 
-it('pro-rata s the public holiday allowance', function () {
+it('pro-rata s the public holiday allowance by pattern and contracted weeks', function () {
     partTimePattern();
 
-    // 8 days x 7.5 hours x 0.4267
-    expect((new LeaveLedger(new LeaveYear(2026)))->publicHolidayEntitlement())->toBe(25.6);
+    // 8 days x 7.5h x 0.4267 x (48 / 52.14)
+    expect((new LeaveLedger(new LeaveYear(2026)))->publicHolidayEntitlement())->toBe(23.57);
 });
 
-it('takes the bookable entitlement as awarded', function () {
+it('pro-rata s the bookable entitlement the same way', function () {
     partTimePattern();
 
-    expect((new LeaveLedger(new LeaveYear(2026)))->annualEntitlement())->toBe(84.5);
+    // 27 days x 7.5h x 0.4267 x (48 / 52.14)
+    expect((new LeaveLedger(new LeaveYear(2026)))->baseEntitlement())->toBe(79.55);
+});
+
+it('drops the four non-contracted weeks from both entitlements', function () {
+    partTimePattern();
+
+    $ledger = new LeaveLedger(new LeaveYear(2026));
+
+    expect($ledger->contractedWeeks())->toBe(48.0)
+        ->and($ledger->yearFraction())->toBe(0.920598);
+})->note('Four weeks off in August is four weeks of entitlement not earned.');
+
+it('uses an awarded figure instead of the calculation when one is set', function () {
+    partTimePattern();
+    config(['leave.annual_leave_hours' => 84.5]);
+
+    expect((new LeaveLedger(new LeaveYear(2026)))->baseEntitlement())->toBe(84.5);
 });
 
 it('has no entitlement without a pattern', function () {
     $ledger = new LeaveLedger(new LeaveYear(2026));
 
     expect($ledger->fraction())->toBe(0.0)
-        ->and($ledger->publicHolidayEntitlement())->toBe(0.0);
+        ->and($ledger->publicHolidayEntitlement())->toBe(0.0)
+        ->and($ledger->baseEntitlement())->toBe(0.0);
 });
 
 /*
@@ -93,15 +111,18 @@ it('charges nothing for a bank holiday in a month that is not worked', function 
     expect((new LeaveLedger(new LeaveYear(2026)))->publicHolidaysUsed())->toBe(0.0);
 });
 
-it('leaves the rest of the allowance available', function () {
+it('adds the unspent allowance to bookable leave', function () {
     partTimePattern();
     BankHoliday::factory()->on('2026-12-28')->create();
 
     $ledger = new LeaveLedger(new LeaveYear(2026));
 
-    expect($ledger->publicHolidaysRemaining())->toBe(21.6)
-        ->and($ledger->publicHolidayShortfall())->toBe(0.0);
-});
+    // 23.57h allowance, 4.00h taken by the one Monday.
+    expect($ledger->publicHolidayAdjustment())->toBe(19.57)
+        ->and($ledger->publicHolidaySurplus())->toBe(19.57)
+        ->and($ledger->publicHolidayShortfall())->toBe(0.0)
+        ->and($ledger->annualEntitlement())->toBe(79.55 + 19.57);
+})->note('Surplus public holiday hours end up in the leave balance.');
 
 it('takes the shortfall out of bookable leave', function () {
     partTimePattern();
@@ -114,10 +135,10 @@ it('takes the shortfall out of bookable leave', function () {
     $ledger = new LeaveLedger(new LeaveYear(2026));
 
     expect($ledger->publicHolidaysUsed())->toBe(28.0)
-        ->and($ledger->publicHolidaysRemaining())->toBe(0.0)
-        ->and($ledger->publicHolidayShortfall())->toBe(2.4)
-        ->and($ledger->annualUsed())->toBe(2.4)
-        ->and($ledger->annualRemaining())->toBe(82.1);
+        ->and($ledger->publicHolidaySurplus())->toBe(0.0)
+        ->and($ledger->publicHolidayShortfall())->toBe(4.43)
+        ->and($ledger->annualEntitlement())->toBe(75.12)
+        ->and($ledger->annualRemaining())->toBe(75.12);
 })->note('This is the number a part time worker actually wants: leave spent on bank holidays.');
 
 /*
@@ -135,7 +156,8 @@ it('draws booked leave from the bookable pot', function () {
     $ledger = new LeaveLedger(new LeaveYear(2026));
 
     expect($ledger->annualBooked())->toBe(8.0)
-        ->and($ledger->annualRemaining())->toBe(76.5);
+        ->and($ledger->annualEntitlement())->toBe(103.12)
+        ->and($ledger->annualRemaining())->toBe(95.12);
 });
 
 it('ignores leave booked in another leave year', function () {
@@ -150,7 +172,7 @@ it('knows when more leave has been used than awarded', function () {
     partTimePattern();
 
     LeaveDay::factory()->on('2026-09-07', 4.0)->create();
-    LeaveDay::factory()->create(['date' => '2026-09-08', 'hours' => 85.0]);
+    LeaveDay::factory()->create(['date' => '2026-09-08', 'hours' => 120.0]);
 
     expect((new LeaveLedger(new LeaveYear(2026)))->isOverdrawn())->toBeTrue();
 });

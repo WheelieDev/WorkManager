@@ -33,26 +33,46 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Annual Leave
+    | Contracted Weeks
     |--------------------------------------------------------------------------
     |
-    | Bookable leave for a full leave year, in hours, as awarded. This is the
-    | figure after the public holiday share has already been taken out, so it
-    | is entered directly rather than derived.
+    | The weeks of the year actually under contract. Four weeks off in August
+    | means 48, and both entitlements are pro-rata'd to match. Set to null to
+    | use the whole year.
     |
     */
 
-    'annual_leave_hours' => 84.5,
+    'contracted_weeks' => 48,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Annual Leave
+    |--------------------------------------------------------------------------
+    |
+    | Bookable leave for a full leave year, as full time days, pro-rata'd by
+    | the hours the pattern works and the weeks under contract.
+    |
+    | Set 'annual_leave_hours' to a figure to use that instead of the
+    | calculation, for when the awarded number is known and should be trusted
+    | over anything derived. Any public holiday surplus is added on top of
+    | whichever figure is used.
+    |
+    */
+
+    'annual_leave_days' => 27,
+
+    'annual_leave_hours' => null,
 
     /*
     |--------------------------------------------------------------------------
     | Public Holidays
     |--------------------------------------------------------------------------
     |
-    | The full time public holiday allowance in days, pro-rata'd by pattern.
-    | Bank holidays falling on a working day draw from this pot; once it is
-    | empty the rest comes out of bookable leave, which is the number a part
-    | time worker actually wants to see.
+    | The full time public holiday allowance in days, pro-rata'd by pattern and
+    | contracted weeks. Bank holidays falling on a working day draw from this
+    | pot. Whatever is left over is added to bookable leave, and if the pot
+    | runs out the rest comes off it instead. Either way a part time worker can
+    | see what their working days cost them.
     |
     */
 

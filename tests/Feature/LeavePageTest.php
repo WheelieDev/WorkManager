@@ -30,9 +30,18 @@ it('shows the two pots apart from each other', function () {
     Livewire::test('pages::leave')
         ->assertSee('Bookable leave')
         ->assertSee('Public holidays')
-        ->assertSee('84.50')
-        ->assertSee('25.60');
+        ->assertSee('79.55')   // 27 days pro rata
+        ->assertSee('23.57');  // 8 public holiday days pro rata
 });
+
+it('shows the unspent allowance going into bookable leave', function () {
+    BankHoliday::factory()->on('2026-12-28')->create();
+
+    Livewire::test('pages::leave')
+        ->assertSee('Goes to bookable leave')
+        ->assertSee('19.57')
+        ->assertSee('added to your bookable leave');
+})->note('The surplus is the whole reason the two pots are shown together.');
 
 it('shows what each bank holiday costs', function () {
     BankHoliday::factory()->on('2026-12-28', 'Boxing Day')->create();
@@ -51,8 +60,8 @@ it('names the leave spent supplementing bank holidays', function () {
     }
 
     Livewire::test('pages::leave')
-        ->assertSee('Spent on bank holidays')
-        ->assertSee('2.40')
+        ->assertSee('Taken from bookable leave')
+        ->assertSee('4.43')
         ->assertSee('making up the difference');
 })->note('The whole point of keeping the two pots apart.');
 
@@ -123,7 +132,8 @@ it('rejects a booking of nothing', function () {
 it('counts booked leave against what is left', function () {
     LeaveDay::factory()->on('2026-09-08', 4.0)->create();
 
-    Livewire::test('pages::leave')->assertSee('80.50');
+    // 79.55 base + 23.57 unspent allowance - 4.00 booked
+    Livewire::test('pages::leave')->assertSee('99.12');
 });
 
 it('names the leave on the timesheet day', function () {

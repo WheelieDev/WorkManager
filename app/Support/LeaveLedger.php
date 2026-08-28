@@ -82,11 +82,78 @@ class LeaveLedger
     }
 
     /**
-     * Get the bookable leave awarded for the year.
+     * Get the weeks of the year under contract.
+     */
+    public function contractedWeeks(): float
+    {
+        return (float) (config('leave.contracted_weeks') ?? config('leave.weeks_per_year'));
+    }
+
+    /**
+     * Get the share of the year under contract.
+     *
+     * Four weeks off in August is four weeks of entitlement not earned.
+     */
+    public function yearFraction(): float
+    {
+        $weeks = (float) config('leave.weeks_per_year');
+
+        return $weeks > 0 ? round(min(1, $this->contractedWeeks() / $weeks), 6) : 1.0;
+    }
+
+    /**
+     * Turn full time days into the hours they are worth here.
+     */
+    protected function daysToHours(float $days): float
+    {
+        $dayLength = $this->fullTimeWeeklyHours() / 5;
+
+        return round($days * $dayLength * $this->fraction() * $this->yearFraction(), 2);
+    }
+
+    /**
+     * Get the bookable leave before any public holiday adjustment.
+     */
+    public function baseEntitlement(): float
+    {
+        $awarded = config('leave.annual_leave_hours');
+
+        if ($awarded !== null) {
+            return round((float) $awarded, 2);
+        }
+
+        return $this->daysToHours((float) config('leave.annual_leave_days'));
+    }
+
+    /**
+     * Get the bookable leave for the year, once public holidays are settled.
+     *
+     * Unspent public holiday hours are added here rather than left in their
+     * own pot, because that is where they end up in practice.
      */
     public function annualEntitlement(): float
     {
-        return round((float) config('leave.annual_leave_hours'), 2);
+        return round($this->baseEntitlement() + $this->publicHolidayAdjustment(), 2);
+    }
+
+    /**
+     * Get what public holidays do to the bookable balance.
+     *
+     * Positive when the working pattern misses bank holidays and the unused
+     * allowance carries over; negative when they land on working days more
+     * often than the allowance covers.
+     */
+    public function publicHolidayAdjustment(): float
+    {
+        return round($this->publicHolidayEntitlement() - $this->publicHolidaysUsed(), 2);
+    }
+
+    /**
+     * Get the unspent public holiday hours added to bookable leave.
+     */
+    public function publicHolidaySurplus(): float
+    {
+        return round(max(0, $this->publicHolidayAdjustment()), 2);
     }
 
     /**
@@ -94,10 +161,7 @@ class LeaveLedger
      */
     public function publicHolidayEntitlement(): float
     {
-        $days = (float) config('leave.public_holiday_days');
-        $dayLength = $this->fullTimeWeeklyHours() / 5;
-
-        return round($days * $dayLength * $this->fraction(), 2);
+        return $this->daysToHours((float) config('leave.public_holiday_days'));
     }
 
     /**
@@ -130,17 +194,17 @@ class LeaveLedger
      */
     public function publicHolidaysRemaining(): float
     {
-        return round(max(0, $this->publicHolidayEntitlement() - $this->publicHolidaysUsed()), 2);
+        return $this->publicHolidaySurplus();
     }
 
     /**
      * Get the bank holiday hours the allowance did not stretch to.
      *
-     * This is what comes out of bookable leave instead.
+     * This is what comes off bookable leave instead.
      */
     public function publicHolidayShortfall(): float
     {
-        return round(max(0, $this->publicHolidaysUsed() - $this->publicHolidayEntitlement()), 2);
+        return round(max(0, -$this->publicHolidayAdjustment()), 2);
     }
 
     /**
@@ -165,11 +229,11 @@ class LeaveLedger
     }
 
     /**
-     * Get everything drawn from bookable leave, including any shortfall.
+     * Get the leave drawn from the bookable balance.
      */
     public function annualUsed(): float
     {
-        return round($this->annualBooked() + $this->publicHolidayShortfall(), 2);
+        return $this->annualBooked();
     }
 
     /**

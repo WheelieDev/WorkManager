@@ -169,18 +169,26 @@ new class extends Component {
 
             <dl class="mt-4 flex flex-col gap-1 text-sm">
                 <div class="flex justify-between">
-                    <dt class="text-zinc-500 dark:text-zinc-400">Booked</dt>
-                    <dd class="tabular">{{ $hours($ledger->annualBooked()) }}</dd>
+                    <dt class="text-zinc-500 dark:text-zinc-400">
+                        {{ config('leave.annual_leave_days') }} days, pro rata
+                    </dt>
+                    <dd class="tabular">{{ $hours($ledger->baseEntitlement()) }}</dd>
                 </div>
                 <div class="flex justify-between">
-                    <dt class="text-zinc-500 dark:text-zinc-400">Spent on bank holidays</dt>
-                    <dd class="tabular {{ $ledger->publicHolidayShortfall() > 0 ? 'text-deficit dark:text-deficit-bright' : '' }}">
-                        {{ $hours($ledger->publicHolidayShortfall()) }}
+                    <dt class="text-zinc-500 dark:text-zinc-400">
+                        {{ $ledger->publicHolidayAdjustment() >= 0 ? 'Public holidays left over' : 'Public holidays over the allowance' }}
+                    </dt>
+                    <dd class="tabular {{ $ledger->publicHolidayAdjustment() < 0 ? 'text-deficit dark:text-deficit-bright' : 'text-surplus dark:text-surplus-bright' }}">
+                        {{ $ledger->publicHolidayAdjustment() > 0 ? '+' : '' }}{{ $hours($ledger->publicHolidayAdjustment()) }}
                     </dd>
                 </div>
                 <div class="flex justify-between border-t border-zinc-200 pt-1 font-medium dark:border-zinc-700">
-                    <dt class="text-zinc-500 dark:text-zinc-400">Used</dt>
-                    <dd class="tabular">{{ $hours($ledger->annualUsed()) }}</dd>
+                    <dt class="text-zinc-500 dark:text-zinc-400">Entitlement</dt>
+                    <dd class="tabular">{{ $hours($ledger->annualEntitlement()) }}</dd>
+                </div>
+                <div class="flex justify-between">
+                    <dt class="text-zinc-500 dark:text-zinc-400">Booked</dt>
+                    <dd class="tabular">{{ $hours($ledger->annualBooked()) }}</dd>
                 </div>
             </dl>
         </section>
@@ -193,35 +201,43 @@ new class extends Component {
                     {{ $hours($ledger->publicHolidaysRemaining()) }}
                 </span>
                 <span class="text-sm text-zinc-500 dark:text-zinc-400">
-                    hours left of {{ $hours($ledger->publicHolidayEntitlement()) }}
+                    hours of {{ $hours($ledger->publicHolidayEntitlement()) }} left over
                 </span>
             </div>
 
             <dl class="mt-4 flex flex-col gap-1 text-sm">
                 <div class="flex justify-between">
-                    <dt class="text-zinc-500 dark:text-zinc-400">Allowance</dt>
-                    <dd class="tabular">{{ config('leave.public_holiday_days') }} days at {{ $ledger->fraction() }} of full time</dd>
+                    <dt class="text-zinc-500 dark:text-zinc-400">
+                        {{ config('leave.public_holiday_days') }} days, pro rata
+                    </dt>
+                    <dd class="tabular">{{ $hours($ledger->publicHolidayEntitlement()) }}</dd>
                 </div>
                 <div class="flex justify-between">
-                    <dt class="text-zinc-500 dark:text-zinc-400">Used by bank holidays</dt>
+                    <dt class="text-zinc-500 dark:text-zinc-400">Taken by bank holidays</dt>
                     <dd class="tabular">{{ $hours($ledger->publicHolidaysUsed()) }}</dd>
                 </div>
-                @if ($ledger->publicHolidayShortfall() > 0)
-                    <div class="flex justify-between border-t border-zinc-200 pt-1 font-medium dark:border-zinc-700">
-                        <dt class="text-deficit dark:text-deficit-bright">Over the allowance</dt>
-                        <dd class="tabular text-deficit dark:text-deficit-bright">{{ $hours($ledger->publicHolidayShortfall()) }}</dd>
-                    </div>
-                @endif
+                <div class="flex justify-between border-t border-zinc-200 pt-1 font-medium dark:border-zinc-700">
+                    <dt class="{{ $ledger->publicHolidayAdjustment() < 0 ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-500 dark:text-zinc-400' }}">
+                        {{ $ledger->publicHolidayAdjustment() < 0 ? 'Taken from bookable leave' : 'Goes to bookable leave' }}
+                    </dt>
+                    <dd class="tabular {{ $ledger->publicHolidayAdjustment() < 0 ? 'text-deficit dark:text-deficit-bright' : 'text-surplus dark:text-surplus-bright' }}">
+                        {{ $hours(abs($ledger->publicHolidayAdjustment())) }}
+                    </dd>
+                </div>
             </dl>
         </section>
     </div>
 
     <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
         You work <span class="tabular">{{ $hours($ledger->weeklyHours()) }}</span>h a week against a full time
-        <span class="tabular">{{ $hours($ledger->fullTimeWeeklyHours()) }}</span>h, so
-        <span class="tabular">{{ $hours($ledger->yearlyHours()) }}</span>h a year of a full time
-        <span class="tabular">{{ $hours($ledger->fullTimeYearlyHours()) }}</span>h.
-        @if ($ledger->publicHolidayShortfall() > 0)
+        <span class="tabular">{{ $hours($ledger->fullTimeWeeklyHours()) }}</span>h, over
+        <span class="tabular">{{ $ledger->contractedWeeks() }}</span> contracted weeks of
+        <span class="tabular">{{ config('leave.weeks_per_year') }}</span>.
+        @if ($ledger->publicHolidayAdjustment() > 0)
+            Bank holidays miss your working days often enough to leave
+            <span class="tabular">{{ $hours($ledger->publicHolidayAdjustment()) }}</span>h of the allowance
+            unspent, which is added to your bookable leave.
+        @elseif ($ledger->publicHolidayAdjustment() < 0)
             Bank holidays fall on your working days more often than the allowance covers, so
             <span class="tabular">{{ $hours($ledger->publicHolidayShortfall()) }}</span>h of bookable leave is
             making up the difference.
