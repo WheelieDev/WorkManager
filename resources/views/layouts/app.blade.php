@@ -17,6 +17,13 @@
     </head>
 
     <body class="min-h-screen bg-white dark:bg-zinc-800">
+        @if (config('database.sandbox'))
+            <div class="[grid-area:header] flex items-center justify-center gap-2 bg-amber-400 px-4 py-1 text-center text-xs font-medium text-amber-950">
+                Sandbox database &mdash; nothing here is real.
+                <code class="rounded bg-amber-950/10 px-1.5 py-0.5">php artisan db:use main</code>
+            </div>
+        @endif
+
         @auth
             <flux:sidebar sticky stashable class="border-e border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
                 <flux:sidebar.toggle class="lg:hidden" icon="x-mark" inset="left" />

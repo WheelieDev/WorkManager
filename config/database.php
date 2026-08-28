@@ -21,6 +21,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Sandbox Database
+    |--------------------------------------------------------------------------
+    |
+    | A throwaway copy of the schema for trying things out, so real hours are
+    | never at risk. Switch with "php artisan db:use sandbox". The marker file
+    | decides which sqlite file the default connection opens; it is never
+    | committed, and DB_DATABASE still overrides it, so tests keep using the
+    | in-memory database.
+    |
+    */
+
+    'sandbox_marker' => storage_path('app/using-sandbox-database'),
+
+    'sandbox' => file_exists(storage_path('app/using-sandbox-database')),
+
+    /*
+    |--------------------------------------------------------------------------
     | Database Connections
     |--------------------------------------------------------------------------
     |
@@ -35,7 +52,11 @@ return [
         'sqlite' => [
             'driver' => 'sqlite',
             'url' => env('DB_URL'),
-            'database' => env('DB_DATABASE', database_path('database.sqlite')),
+            'database' => env('DB_DATABASE', database_path(
+                file_exists(storage_path('app/using-sandbox-database'))
+                    ? 'sandbox.sqlite'
+                    : 'database.sqlite'
+            )),
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
             'busy_timeout' => null,
