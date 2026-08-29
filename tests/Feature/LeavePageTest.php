@@ -452,6 +452,7 @@ it('replaces leave of the same type when it is rebooked', function () {
 
 it('shows the other leave allowances', function () {
     Livewire::test('pages::leave')
+        ->set('tab', 'other')
         ->assertSee('Other leave')
         ->assertSee('Volunteering leave')
         ->assertSee('3.20');
@@ -469,6 +470,7 @@ it('says what sick pay the length of service earns', function () {
     config(['leave.service_started' => '2020-01-01']);
 
     Livewire::test('pages::leave')
+        ->set('tab', 'sickness')
         ->assertSee('Sickness allowance')
         ->assertSee('Full pay')
         ->assertSee('Half pay')
@@ -479,6 +481,7 @@ it('asks for a service start before guessing at sick pay', function () {
     config(['leave.service_started' => null]);
 
     Livewire::test('pages::leave')
+        ->set('tab', 'sickness')
         ->assertSee('Sickness allowance')
         ->assertSee('service_started')
         ->assertDontSee('Full pay');
@@ -550,3 +553,80 @@ it('shortens a request and gives the days back', function () {
     expect(LeaveRequest::query()->sole()->ends_on->toDateString())->toBe('2026-09-08')
         ->and(LeaveDay::query()->where('date', '>', '2026-09-08')->exists())->toBeFalse();
 })->note('Days dropped from the range must not stay booked against the request.');
+
+/*
+|--------------------------------------------------------------------------
+| Tabs
+|--------------------------------------------------------------------------
+*/
+
+it('opens on the annual leave tab', function () {
+    Livewire::test('pages::leave')
+        ->assertSet('tab', 'annual')
+        ->assertSee('Annual leave')
+        ->assertSee('Other leave')
+        ->assertSee('Sickness')
+        ->assertSee('Bookable leave');
+});
+
+it('keeps each kind of leave to its own tab', function () {
+    config(['leave.service_started' => '2020-01-01']);
+
+    Livewire::test('pages::leave')
+        ->assertSee('Bookable leave')
+        ->assertDontSee('Sickness allowance')
+        ->set('tab', 'sickness')
+        ->assertSee('Sickness allowance')
+        ->assertDontSee('Bookable leave');
+})->note('Stacking all three was what made the page messy.');
+
+it('shows only the bookings belonging to the tab', function () {
+    foreach ([[LeaveType::Annual, '2026-09-07'], [LeaveType::Hospital, '2026-09-08'], [LeaveType::Sickness, '2026-09-09']] as [$type, $date]) {
+        Livewire::test('pages::leave')
+            ->call('bookLeave', $date)
+            ->set('type', $type->value)
+            ->call('saveLeave')
+            ->assertHasNoErrors();
+    }
+
+    Livewire::test('pages::leave')
+        ->assertSee('Mon 7 Sep 2026')
+        ->assertDontSee('Tue 8 Sep 2026')
+        ->assertDontSee('Wed 9 Sep 2026');
+
+    Livewire::test('pages::leave')
+        ->set('tab', 'other')
+        ->assertSee('Tue 8 Sep 2026')
+        ->assertDontSee('Mon 7 Sep 2026')
+        ->assertDontSee('Wed 9 Sep 2026');
+
+    Livewire::test('pages::leave')
+        ->set('tab', 'sickness')
+        ->assertSee('Wed 9 Sep 2026')
+        ->assertDontSee('Mon 7 Sep 2026')
+        ->assertDontSee('Tue 8 Sep 2026');
+});
+
+it('starts a booking on a type the tab actually shows', function () {
+    Livewire::test('pages::leave')
+        ->set('tab', 'sickness')
+        ->call('bookLeave', '2026-09-10')
+        ->assertSet('type', LeaveType::Sickness->value);
+
+    Livewire::test('pages::leave')
+        ->set('tab', 'annual')
+        ->call('bookLeave', '2026-09-10')
+        ->assertSet('type', LeaveType::Annual->value);
+})->note('Booking from the sickness tab and getting annual leave would be a trap.');
+
+it('names the type column only where types are mixed', function () {
+    $column = '<th class="py-1.5 text-start font-medium">Type</th>';
+
+    Livewire::test('pages::leave')
+        ->call('bookLeave', '2026-09-08')
+        ->set('type', LeaveType::Hospital->value)
+        ->call('saveLeave');
+
+    Livewire::test('pages::leave')->set('tab', 'other')->assertSeeHtml($column);
+    Livewire::test('pages::leave')->set('tab', 'annual')->assertDontSeeHtml($column);
+})->note('A tab showing one type does not need a column repeating it.');

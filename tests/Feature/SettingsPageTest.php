@@ -80,13 +80,14 @@ it('shows what the date in force earns', function () {
 it('feeds the sickness allowance on the leave page', function () {
     config(['leave.service_started' => null]);
 
-    Livewire::test('pages::leave')->assertSee('service_started');
+    Livewire::test('pages::leave')->set('tab', 'sickness')->assertSee('service_started');
 
     Livewire::test('pages::settings')
         ->set('serviceStarted', '2024-01-01')
         ->call('save');
 
     Livewire::test('pages::leave')
+        ->set('tab', 'sickness')
         ->assertSee('Full pay')
         ->assertDontSee('service_started');
 });
