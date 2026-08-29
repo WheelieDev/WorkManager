@@ -300,6 +300,7 @@ new class extends Component {
         $sickness = $this->sicknessLedger();
 
         $days = $this->showingForm ? $this->daysInRange() : collect();
+        $otherLeave = $ledger->otherLeave();
 
         return [
             'chosenDays' => $days,
@@ -312,7 +313,8 @@ new class extends Component {
                 : $ledger->requests()->filter(
                     fn (LeaveRequest $request): bool => in_array($request->days->first()?->type, $this->tabTypes(), true),
                 ),
-            'otherLeave' => $ledger->otherLeave(),
+            'otherLeave' => $otherLeave,
+            'otherUsed' => round($otherLeave->sum('used'), 2),
             'sickness' => $sickness,
         ];
     }
@@ -345,6 +347,93 @@ new class extends Component {
         </div>
     </div>
 
+
+    {{-- Where each pot stands, before you pick one. The tabs below carry the
+         working out; this only says what is left and where to look. --}}
+    @php
+        $tile = fn (string $key): string => 'rounded-xl border px-4 py-3 text-start transition '.($tab === $key
+            ? 'border-zinc-300 bg-ledger dark:border-zinc-600 dark:bg-white/[0.03]'
+            : 'border-zinc-200 hover:border-zinc-300 dark:border-zinc-700 dark:hover:border-zinc-600');
+        $tileLabel = 'text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500';
+        $tileFigure = 'tabular text-2xl font-medium leading-none';
+        $tileNote = 'mt-1 text-xs text-zinc-400 dark:text-zinc-500';
+    @endphp
+
+    <section class="mt-6 grid gap-3 sm:grid-cols-3">
+        <button type="button" class="{{ $tile('annual') }}" wire:click="$set('tab', 'annual')">
+            <div class="{{ $tileLabel }}">Annual leave</div>
+
+            <div class="mt-1 flex items-baseline gap-2">
+                <span class="{{ $tileFigure }} {{ $ledger->isOverdrawn() ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-800 dark:text-white' }}">
+                    {{ $hours($ledger->annualRemaining()) }}
+                </span>
+                <span class="text-sm text-zinc-500 dark:text-zinc-400">
+                    hours left of {{ $hours($ledger->annualEntitlement()) }}
+                </span>
+            </div>
+
+            <div class="{{ $tileNote }}">
+                <span class="tabular">{{ $hours($ledger->annualBooked()) }}</span>h booked
+                @if ($ledger->asDays($ledger->annualRemaining()) !== null)
+                    &middot; about {{ $ledger->asDays($ledger->annualRemaining()) }} days left
+                @endif
+            </div>
+        </button>
+
+        <button type="button" class="{{ $tile('other') }}" wire:click="$set('tab', 'other')">
+            <div class="{{ $tileLabel }}">Other leave</div>
+
+            @if ($otherLeave->isEmpty())
+                <div class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Nothing booked this year</div>
+                <div class="{{ $tileNote }}">None of it comes off your annual leave</div>
+            @else
+                <div class="mt-1 flex items-baseline gap-2">
+                    <span class="{{ $tileFigure }} text-zinc-800 dark:text-white">{{ $hours($otherUsed) }}</span>
+                    <span class="text-sm text-zinc-500 dark:text-zinc-400">
+                        hours taken across {{ $otherLeave->count() }} {{ Str::plural('type', $otherLeave->count()) }}
+                    </span>
+                </div>
+
+                <div class="{{ $tileNote }}">
+                    @php $overdrawn = $otherLeave->filter(fn ($other) => $other->isOverdrawn()); @endphp
+
+                    @if ($overdrawn->isNotEmpty())
+                        <span class="text-deficit dark:text-deficit-bright">
+                            {{ $overdrawn->map(fn ($other) => $other->type->label())->join(', ', ' and ') }}
+                            past its allowance
+                        </span>
+                    @else
+                        Counted apart from your annual leave
+                    @endif
+                </div>
+            @endif
+        </button>
+
+        <button type="button" class="{{ $tile('sickness') }}" wire:click="$set('tab', 'sickness')">
+            <div class="{{ $tileLabel }}">Sickness</div>
+
+            @unless ($sickness->isConfigured())
+                <div class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">No length of service set</div>
+                <div class="{{ $tileNote }}">There is nothing to work sick pay out from</div>
+            @else
+                <div class="mt-1 flex items-baseline gap-2">
+                    <span class="{{ $tileFigure }} {{ $sickness->fullPayRemaining() <= 0 ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-800 dark:text-white' }}">
+                        {{ $hours($sickness->fullPayRemaining()) }}
+                    </span>
+                    <span class="text-sm text-zinc-500 dark:text-zinc-400">
+                        hours of full pay left of {{ $hours($sickness->fullPayEntitlement()) }}
+                    </span>
+                </div>
+
+                {{-- Sick pay runs over the twelve months before an absence, so it
+                     stays as at today however far the leave year is wound back. --}}
+                <div class="{{ $tileNote }}">
+                    then <span class="tabular">{{ $hours($sickness->halfPayRemaining()) }}</span>h at half pay
+                    &middot; rolling year to {{ $sickness->asAt->format('j M Y') }}
+                </div>
+            @endunless
+        </button>
+    </section>
 
     {{-- Annual leave, the other absence types and sickness are each counted a
          different way, so they are kept on their own tabs rather than stacked. --}}

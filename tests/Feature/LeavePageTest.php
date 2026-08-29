@@ -556,6 +556,44 @@ it('shortens a request and gives the days back', function () {
 
 /*
 |--------------------------------------------------------------------------
+| The overview
+|--------------------------------------------------------------------------
+*/
+
+it('summarises every pot above the tabs', function () {
+    config(['leave.service_started' => '2020-01-01']);
+    LeaveDay::factory()->create(['date' => '2026-09-08', 'type' => LeaveType::Hospital, 'hours' => 3]);
+
+    Livewire::test('pages::leave')
+        ->assertSeeInOrder(['Annual leave', 'Other leave', 'Sickness', 'Bookable leave'])
+        ->assertSee('hours taken across 2 types')
+        ->assertSee('hours of full pay left of');
+})->note('The tabs hold the working out; the overview only says where to look.');
+
+it('opens a tab from its tile', function () {
+    Livewire::test('pages::leave')
+        ->set('tab', 'sickness')
+        ->assertSeeHtml('wire:click="$set(\'tab\', \'annual\')"');
+})->note('The summary is the way into the detail, from whichever tab you are on.');
+
+it('holds the sickness summary to the rolling year as the leave year is wound back', function () {
+    config(['leave.service_started' => '2020-01-01']);
+
+    Livewire::test('pages::leave')
+        ->call('shiftYear', -1)
+        ->assertSee('rolling year to 7 Sep 2026');
+})->note('Sick pay is not counted by leave year, so winding one back must not appear to move it.');
+
+it('does not guess at sick pay in the overview', function () {
+    config(['leave.service_started' => null]);
+
+    Livewire::test('pages::leave')
+        ->assertSee('No length of service set')
+        ->assertDontSee('full pay left');
+});
+
+/*
+|--------------------------------------------------------------------------
 | Tabs
 |--------------------------------------------------------------------------
 */
