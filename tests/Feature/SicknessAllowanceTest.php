@@ -254,3 +254,38 @@ it('never reports a negative entitlement', function () {
         ->and($ledger->halfPayRemaining())->toBe(0.0)
         ->and($ledger->isExhausted())->toBeTrue();
 });
+
+/*
+|--------------------------------------------------------------------------
+| Saying which year of service it is
+|--------------------------------------------------------------------------
+*/
+
+it('counts the year being served, not the years completed', function (string $started, int $year, string $label) {
+    config(['leave.service_started' => $started]);
+    $this->travelTo('2026-08-29');
+
+    $ledger = new SicknessLedger;
+
+    expect($ledger->yearOfService())->toBe($year)
+        ->and($ledger->yearOfServiceLabel())->toBe($label);
+})->with([
+    'part way through the first' => ['2026-06-01', 1, '1st year of service'],
+    'one complete year' => ['2025-08-29', 2, '2nd year of service'],
+    'two complete years' => ['2024-08-29', 3, '3rd year of service'],
+    'three complete years' => ['2023-08-29', 4, '4th year of service'],
+    'four complete years' => ['2022-08-29', 5, '5th year of service'],
+    'five complete years' => ['2021-08-29', 6, '6th year of service'],
+    'twenty complete years' => ['2006-08-29', 21, '21st year of service'],
+])->note('The policy bands by the year being served, so three years in is the fourth year.');
+
+it('matches the band to the year of service the policy names', function () {
+    config(['leave.service_started' => '2023-08-29']);
+    $this->travelTo('2026-08-29');
+
+    $ledger = new SicknessLedger;
+
+    // "During the 4th and 5th Year of Service: 5 months full and 5 months half."
+    expect($ledger->yearOfServiceLabel())->toBe('4th year of service')
+        ->and($ledger->band()->label())->toBe('5 months full pay and 5 months half pay');
+});

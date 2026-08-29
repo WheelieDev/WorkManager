@@ -73,7 +73,7 @@ it('shows what the date in force earns', function () {
     Livewire::test('pages::settings')
         ->set('serviceStarted', '2019-05-06')
         ->call('save')
-        ->assertSee('7 years of service')
+        ->assertSee('your 8th year of service')
         ->assertSee('6 months full pay and 6 months half pay');
 })->note('A mistyped year is easiest to catch by what it claims to earn.');
 

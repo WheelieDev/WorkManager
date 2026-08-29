@@ -467,7 +467,7 @@ new class extends Component {
             </div>
 
             <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
-                {{ $sickness->yearsOfService() }} {{ Str::plural('year', $sickness->yearsOfService()) }} of service
+                Your {{ $sickness->yearOfServiceLabel() }}
                 earns {{ $sickness->band()->label() }}, worth
                 <span class="tabular">{{ $hours($sickness->monthHours()) }}</span>h a month at your pattern.
                 @if ($sickness->used() > 0)

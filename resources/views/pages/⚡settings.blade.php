@@ -75,7 +75,7 @@ new class extends Component {
             {{-- What the date in force currently earns, so a wrong year shows itself. --}}
             @if ($sickness->isConfigured())
                 <div class="mt-4 border-t border-zinc-100 pt-3 text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
-                    {{ $sickness->yearsOfService() }} {{ Str::plural('year', $sickness->yearsOfService()) }} of service,
+                    You are in your {{ $sickness->yearOfServiceLabel() }},
                     earning {{ $sickness->band()->label() }}.
                 </div>
             @endif

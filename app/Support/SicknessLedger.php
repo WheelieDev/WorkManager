@@ -9,6 +9,7 @@ use App\Models\WorkPattern;
 use DateTimeInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Number;
 
 /**
  * Works out occupational sick pay for a day of sickness.
@@ -87,6 +88,29 @@ class SicknessLedger
         $months = $this->monthsOfService($date);
 
         return $months === null ? null : intdiv($months, 12);
+    }
+
+    /**
+     * Get the year of service a date falls in.
+     *
+     * The policy bands absence by the year being served rather than by the
+     * years completed, so somebody three years in is in their fourth year.
+     */
+    public function yearOfService(?DateTimeInterface $date = null): ?int
+    {
+        $years = $this->yearsOfService($date);
+
+        return $years === null ? null : $years + 1;
+    }
+
+    /**
+     * Say which year of service a date falls in, as the policy words it.
+     */
+    public function yearOfServiceLabel(?DateTimeInterface $date = null): ?string
+    {
+        $year = $this->yearOfService($date);
+
+        return $year === null ? null : Number::ordinal($year).' year of service';
     }
 
     /**
