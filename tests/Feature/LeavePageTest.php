@@ -498,3 +498,55 @@ it('books sickness against the sickness allowance', function () {
     // Sickness has its own accounting, so it is not listed with the rest.
     Livewire::test('pages::leave')->assertDontSee('Sickness</dt>');
 });
+
+it('offers both ends of the range when changing a request', function () {
+    Livewire::test('pages::leave')
+        ->call('bookLeave', '2026-09-07')
+        ->set('to', '2026-09-10')
+        ->call('saveLeave');
+
+    $request = LeaveRequest::query()->sole();
+
+    Livewire::test('pages::leave')
+        ->call('editLeave', $request)
+        ->assertSet('from', '2026-09-07')
+        ->assertSet('to', '2026-09-10')
+        ->assertSeeHtml('wire:model.live="to"');
+})->note('Without the second box a multi-day request could not be shortened or extended.');
+
+it('extends a request when the range is changed', function () {
+    Livewire::test('pages::leave')
+        ->call('bookLeave', '2026-09-07')
+        ->set('to', '2026-09-08')
+        ->call('saveLeave');
+
+    $request = LeaveRequest::query()->sole();
+    $before = LeaveDay::query()->count();
+
+    Livewire::test('pages::leave')
+        ->call('editLeave', $request)
+        ->set('to', '2026-09-10')
+        ->call('saveLeave')
+        ->assertHasNoErrors();
+
+    expect(LeaveDay::query()->count())->toBeGreaterThan($before)
+        ->and(LeaveRequest::query()->sole()->ends_on->toDateString())->toBe('2026-09-10');
+});
+
+it('shortens a request and gives the days back', function () {
+    Livewire::test('pages::leave')
+        ->call('bookLeave', '2026-09-07')
+        ->set('to', '2026-09-10')
+        ->call('saveLeave');
+
+    $request = LeaveRequest::query()->sole();
+
+    Livewire::test('pages::leave')
+        ->call('editLeave', $request)
+        ->set('to', '2026-09-08')
+        ->call('saveLeave')
+        ->assertHasNoErrors();
+
+    expect(LeaveRequest::query()->sole()->ends_on->toDateString())->toBe('2026-09-08')
+        ->and(LeaveDay::query()->where('date', '>', '2026-09-08')->exists())->toBeFalse();
+})->note('Days dropped from the range must not stay booked against the request.');

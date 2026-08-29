@@ -599,16 +599,14 @@ new class extends Component {
 
             <div class="flex items-end gap-3">
                 <flux:field>
-                    <flux:label>{{ $editingId ? 'Date' : 'From' }}</flux:label>
+                    <flux:label>From</flux:label>
                     <flux:input type="date" wire:model.live="from" />
                 </flux:field>
 
-                @unless ($editingId)
-                    <flux:field>
-                        <flux:label>To</flux:label>
-                        <flux:input type="date" wire:model.live="to" />
-                    </flux:field>
-                @endunless
+                <flux:field>
+                    <flux:label>To</flux:label>
+                    <flux:input type="date" wire:model.live="to" />
+                </flux:field>
             </div>
 
             <flux:error name="from" />
