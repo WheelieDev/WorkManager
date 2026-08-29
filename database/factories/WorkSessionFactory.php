@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\WorkKind;
 use App\Models\WorkSession;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Carbon;
@@ -23,6 +24,7 @@ class WorkSessionFactory extends Factory
         return [
             'started_at' => $startedAt,
             'ended_at' => $startedAt->copy()->addHours(8),
+            'kind' => WorkKind::Contracted,
         ];
     }
 
@@ -34,6 +36,16 @@ class WorkSessionFactory extends Factory
         return $this->state(fn (array $attributes) => [
             'started_at' => Carbon::parse("{$date} {$from}"),
             'ended_at' => Carbon::parse("{$date} {$to}"),
+        ]);
+    }
+
+    /**
+     * Indicate that the session was worked as time off in lieu.
+     */
+    public function inLieu(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'kind' => WorkKind::Lieu,
         ]);
     }
 

@@ -139,6 +139,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Time Off In Lieu
+    |--------------------------------------------------------------------------
+    |
+    | The lieu owed before any of it was tracked here. Everything after that is
+    | earned by tracking work as lieu rather than as contracted hours, and spent
+    | by booking it as leave, so the pot is a running balance rather than a
+    | yearly award. A figure entered on the leave page wins over this one.
+    |
+    */
+
+    'lieu_opening_hours' => 0,
+
+    /*
+    |--------------------------------------------------------------------------
     | Length of Service
     |--------------------------------------------------------------------------
     |

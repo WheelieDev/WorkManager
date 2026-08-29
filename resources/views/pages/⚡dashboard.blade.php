@@ -1,15 +1,27 @@
 <?php
 
+use App\Enums\WorkKind;
 use App\Models\WorkSession;
 use App\Support\FlexiCalculator;
 use App\Support\FlexiPeriod;
 use App\Support\LeaveLedger;
 use App\Support\LeaveYear;
+use App\Support\LieuLedger;
+use Livewire\Attributes\Session;
 use Livewire\Component;
 
 new class extends Component {
     /**
-     * Start the timer.
+     * What the next session will be tracked as.
+     *
+     * Held across visits, because whoever has just worked an evening in lieu is
+     * likely to be back tomorrow doing the same.
+     */
+    #[Session]
+    public string $kind = WorkKind::Contracted->value;
+
+    /**
+     * Start the timer, tracking it as whichever kind is chosen.
      */
     public function startTimer(): void
     {
@@ -17,7 +29,7 @@ new class extends Component {
             return;
         }
 
-        WorkSession::start();
+        WorkSession::start(kind: WorkKind::tryFrom($this->kind) ?? WorkKind::Contracted);
     }
 
     /**
@@ -56,10 +68,13 @@ new class extends Component {
         $ledger = new LeaveLedger(LeaveYear::current());
 
         return [
+            'kinds' => WorkKind::cases(),
             'ledger' => $ledger,
+            'lieu' => new LieuLedger,
             'leaveToday' => $calculator->leaveHours(now()),
             'running' => WorkSession::current(),
             'workedToday' => $calculator->workedHours(now()),
+            'lieuToday' => $calculator->lieuHours(now()),
             'expectedToday' => $calculator->expectedHours(now()),
             'deltaToday' => $calculator->deltaFor(now()),
             'bankHolidayToday' => $calculator->bankHolidayTitle(now()),
@@ -88,65 +103,103 @@ new class extends Component {
     <flux:separator variant="subtle" />
 
     <div class="mt-6 grid gap-4 lg:grid-cols-3">
-        <flux:card class="lg:col-span-2">
-            <flux:heading>Timer</flux:heading>
+        {{-- The timer and today's figures are one thing: the clock is what
+             moves them, so they are read together rather than side by side in
+             two boxes. --}}
+        <flux:card class="lg:col-span-3">
+            <div class="flex flex-col gap-6 sm:flex-row sm:items-stretch sm:justify-between">
+                <div class="min-w-0">
+                    <flux:heading>Timer</flux:heading>
 
-            @if ($running)
-                <div
-                    class="mt-4 font-mono text-4xl tabular-nums"
-                    x-data="{
-                        startedAt: {{ $running->started_at->getTimestamp() }},
-                        now: Math.floor(Date.now() / 1000),
-                        get elapsed() {
-                            const seconds = Math.max(0, this.now - this.startedAt);
-                            return [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
-                                .map((part) => String(part).padStart(2, '0'))
-                                .join(':');
-                        },
-                    }"
-                    x-init="setInterval(() => now = Math.floor(Date.now() / 1000), 1000)"
-                    x-text="elapsed"
-                >00:00:00</div>
+                    @if ($running)
+                        <div
+                            class="mt-4 font-mono text-4xl tabular-nums"
+                            x-data="{
+                                startedAt: {{ $running->started_at->getTimestamp() }},
+                                now: Math.floor(Date.now() / 1000),
+                                get elapsed() {
+                                    const seconds = Math.max(0, this.now - this.startedAt);
+                                    return [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
+                                        .map((part) => String(part).padStart(2, '0'))
+                                        .join(':');
+                                },
+                            }"
+                            x-init="setInterval(() => now = Math.floor(Date.now() / 1000), 1000)"
+                            x-text="elapsed"
+                        >00:00:00</div>
 
-                <flux:text variant="subtle" class="mt-1">
-                    Started at {{ $running->started_at->format('H:i') }}
-                </flux:text>
+                        <flux:text variant="subtle" class="mt-1">
+                            Started at {{ $running->started_at->format('H:i') }}
+                            &middot; {{ $running->kind->label() }}
+                        </flux:text>
 
-                <flux:button variant="danger" icon="stop" class="mt-4" wire:click="stopTimer">
-                    Stop
-                </flux:button>
-            @else
-                <div class="mt-4 font-mono text-4xl tabular-nums text-zinc-400 dark:text-zinc-500">00:00:00</div>
+                        <flux:button variant="danger" icon="stop" class="mt-4" wire:click="stopTimer">
+                            Stop
+                        </flux:button>
+                    @else
+                        <div class="mt-4 font-mono text-4xl tabular-nums text-zinc-400 dark:text-zinc-500">00:00:00</div>
 
-                <flux:text variant="subtle" class="mt-1">Not running</flux:text>
+                        <flux:text variant="subtle" class="mt-1">Not running</flux:text>
 
-                <flux:button variant="primary" icon="play" class="mt-4" wire:click="startTimer">
-                    Start
-                </flux:button>
-            @endif
-        </flux:card>
+                        {{-- Chosen before the timer runs, because what the hours are
+                             for decides which pot they land in, not how they felt. --}}
+                        <div class="mt-4 flex flex-wrap items-center gap-3">
+                            <flux:button variant="primary" icon="play" wire:click="startTimer">
+                                Start
+                            </flux:button>
 
-        <flux:card>
-            <flux:heading>Today</flux:heading>
-
-            <dl class="mt-4 flex flex-col gap-2">
-                <div class="flex justify-between">
-                    <dt><flux:text>Worked</flux:text></dt>
-                    <dd><flux:text variant="strong">{{ number_format($workedToday, 2) }}h</flux:text></dd>
+                            <flux:radio.group wire:model.live="kind" variant="segmented" size="sm">
+                                @foreach ($kinds as $workKind)
+                                    <flux:radio value="{{ $workKind->value }}" label="{{ $workKind->shortLabel() }}" />
+                                @endforeach
+                            </flux:radio.group>
+                        </div>
+                    @endif
                 </div>
-                <div class="flex justify-between">
-                    <dt><flux:text>Expected</flux:text></dt>
-                    <dd><flux:text variant="strong">{{ number_format($expectedToday, 2) }}h</flux:text></dd>
+
+                <div class="border-t border-zinc-200 pt-5 sm:shrink-0 sm:border-s sm:border-t-0 sm:ps-6 sm:pt-0 dark:border-zinc-700">
+                    <div class="text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">Today</div>
+
+                    {{-- Three figures read as one sentence, so they sit on a
+                         line rather than down a list the timer has to grow to
+                         meet. --}}
+                    <dl class="mt-3 flex flex-wrap gap-x-8 gap-y-3">
+                        <div>
+                            <dt class="text-xs text-zinc-500 dark:text-zinc-400">Worked</dt>
+                            <dd class="tabular mt-0.5 text-lg font-medium text-zinc-800 dark:text-white">
+                                {{ number_format($workedToday, 2) }}h
+                            </dd>
+                        </div>
+
+                        <div>
+                            <dt class="text-xs text-zinc-500 dark:text-zinc-400">Expected</dt>
+                            <dd class="tabular mt-0.5 text-lg font-medium text-zinc-800 dark:text-white">
+                                {{ number_format($expectedToday, 2) }}h
+                            </dd>
+                        </div>
+
+                        <div>
+                            <dt class="text-xs text-zinc-500 dark:text-zinc-400">Difference</dt>
+                            <dd class="tabular mt-0.5 text-lg font-medium {{ $deltaToday > 0 ? 'text-surplus dark:text-surplus-bright' : ($deltaToday < 0 ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-800 dark:text-white') }}">
+                                {{ $deltaToday > 0 ? '+' : '' }}{{ number_format($deltaToday, 2) }}h
+                            </dd>
+                        </div>
+
+                        {{-- Lieu worked today moves none of the figures beside
+                             it, so it is said plainly rather than left to be
+                             missed. --}}
+                        @if ($lieuToday > 0)
+                            <div>
+                                <dt class="text-xs text-zinc-500 dark:text-zinc-400">Banked in lieu</dt>
+                                <dd class="tabular mt-0.5 text-lg font-medium text-zinc-800 dark:text-white">
+                                    {{ number_format($lieuToday, 2) }}h
+                                </dd>
+                            </div>
+                        @endif
+                    </dl>
                 </div>
-                <div class="flex justify-between">
-                    <dt><flux:text>Difference</flux:text></dt>
-                    <dd>
-                        <flux:badge size="sm" :color="$deltaToday > 0 ? 'lime' : ($deltaToday < 0 ? 'rose' : 'zinc')">
-                            {{ $deltaToday > 0 ? '+' : '' }}{{ number_format($deltaToday, 2) }}h
-                        </flux:badge>
-                    </dd>
-                </div>
-            </dl>
+
+            </div>
         </flux:card>
 
         <flux:card class="lg:col-span-3">
@@ -212,6 +265,19 @@ new class extends Component {
                     of {{ number_format($ledger->annualEntitlement(), 2) }}h left
                     @if ($ledger->asDays($ledger->annualRemaining()) !== null)
                         &middot; about {{ $ledger->asDays($ledger->annualRemaining()) }} days
+                    @endif
+                </flux:text>
+            </div>
+
+            {{-- Lieu is banked by working it rather than awarded, so it is shown
+                 as its own line rather than folded into the balance above. --}}
+            <div class="mt-3 flex items-baseline gap-2 border-t border-zinc-100 pt-3 dark:border-zinc-700">
+                <flux:text>Time off in lieu</flux:text>
+                <flux:text variant="strong" class="tabular-nums">{{ number_format($lieu->balance(), 2) }}h</flux:text>
+                <flux:text variant="subtle">
+                    banked
+                    @if ($lieu->asDays($lieu->balance()) !== null && $lieu->balance() > 0)
+                        &middot; about {{ $lieu->asDays($lieu->balance()) }} days
                     @endif
                 </flux:text>
             </div>

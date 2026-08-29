@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\WorkKind;
 use Carbon\CarbonImmutable;
 use Database\Factories\WorkSessionFactory;
 use DateTimeInterface;
@@ -16,10 +17,11 @@ use RuntimeException;
  * @property int $id
  * @property CarbonImmutable $started_at
  * @property CarbonImmutable|null $ended_at
+ * @property WorkKind $kind
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  */
-#[Fillable(['started_at', 'ended_at'])]
+#[Fillable(['started_at', 'ended_at', 'kind'])]
 class WorkSession extends Model
 {
     /** @use HasFactory<WorkSessionFactory> */
@@ -35,7 +37,30 @@ class WorkSession extends Model
         return [
             'started_at' => 'datetime',
             'ended_at' => 'datetime',
+            'kind' => WorkKind::class,
         ];
+    }
+
+    /**
+     * Scope a query to sessions of one kind.
+     *
+     * @param  Builder<WorkSession>  $query
+     */
+    public function scopeOfKind(Builder $query, WorkKind $kind): void
+    {
+        $query->where('kind', $kind);
+    }
+
+    /**
+     * Scope a query to the hours that settle in the flexi balance.
+     *
+     * @param  Builder<WorkSession>  $query
+     */
+    public function scopeCountingTowardsFlexi(Builder $query): void
+    {
+        $query->whereIn('kind', collect(WorkKind::cases())
+            ->filter(fn (WorkKind $kind): bool => $kind->countsTowardsFlexi())
+            ->map(fn (WorkKind $kind): string => $kind->value));
     }
 
     /**
@@ -87,7 +112,7 @@ class WorkSession extends Model
      *
      * @throws RuntimeException
      */
-    public static function start(?DateTimeInterface $at = null): self
+    public static function start(?DateTimeInterface $at = null, WorkKind $kind = WorkKind::Contracted): self
     {
         if (self::query()->running()->exists()) {
             throw new RuntimeException('A work session is already running.');
@@ -95,6 +120,7 @@ class WorkSession extends Model
 
         return self::query()->create([
             'started_at' => $at ? Carbon::parse($at) : now(),
+            'kind' => $kind,
         ]);
     }
 
@@ -118,6 +144,14 @@ class WorkSession extends Model
         $this->update(['ended_at' => $endedAt]);
 
         return $this;
+    }
+
+    /**
+     * Determine whether this session is being worked back as time off later.
+     */
+    public function isLieu(): bool
+    {
+        return $this->kind === WorkKind::Lieu;
     }
 
     /**

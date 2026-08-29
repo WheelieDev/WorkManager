@@ -4,10 +4,13 @@ use App\Enums\LeaveType;
 use App\Models\LeaveDay;
 use App\Models\LeaveCarryover;
 use App\Models\LeaveRequest;
+use App\Models\Setting;
 use App\Support\FlexiCalculator;
 use App\Support\LeaveLedger;
 use App\Support\LeaveYear;
+use App\Support\LieuLedger;
 use App\Support\SicknessLedger;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
@@ -37,6 +40,10 @@ new class extends Component {
 
     public bool $showingCarryover = false;
 
+    public string $opening = '';
+
+    public bool $showingOpening = false;
+
     /**
      * Start on the leave year we are in.
      */
@@ -46,7 +53,7 @@ new class extends Component {
     }
 
     /**
-     * Get the tabs, and what each is called.
+     * Get the pots, and what each is called.
      *
      * @return array<string, string>
      */
@@ -54,19 +61,32 @@ new class extends Component {
     {
         return [
             'annual' => 'Annual leave',
+            'lieu' => 'Time off in lieu',
             'other' => 'Other leave',
             'sickness' => 'Sickness',
         ];
     }
 
     /**
-     * Get the leave types the tab on view is responsible for.
+     * Open a pot, or close the one already open.
+     *
+     * One at a time: two sets of working out side by side invite the reading
+     * that they add up, and these pots never trade with each other.
+     */
+    public function togglePot(string $key): void
+    {
+        $this->tab = $this->tab === $key ? '' : $key;
+    }
+
+    /**
+     * Get the leave types the pot on view is responsible for.
      *
      * @return array<int, LeaveType>
      */
     public function tabTypes(): array
     {
         return match ($this->tab) {
+            'lieu' => [LeaveType::Lieu],
             'other' => LeaveType::separate(),
             'sickness' => [LeaveType::Sickness],
             default => [LeaveType::Annual],
@@ -83,6 +103,14 @@ new class extends Component {
     public function sicknessLedger(): SicknessLedger
     {
         return new SicknessLedger;
+    }
+
+    /**
+     * Get the time off in lieu ledger, which runs across every year.
+     */
+    public function lieuLedger(): LieuLedger
+    {
+        return new LieuLedger;
     }
 
     /**
@@ -214,6 +242,12 @@ new class extends Component {
 
         $type = LeaveType::from($this->type);
 
+        // Lieu is spent from a balance that has to have been earned first, so
+        // a booking bigger than what is banked is refused rather than owed.
+        if ($type->drawsOnLieu() && ! $this->lieuCovers($days, $partDay)) {
+            return;
+        }
+
         $request = $this->editingId !== null
             ? LeaveRequest::query()->findOrFail($this->editingId)
             : new LeaveRequest;
@@ -244,6 +278,89 @@ new class extends Component {
 
         $this->showingForm = false;
         $this->year = LeaveYear::forDate($days->first()['date'])->year;
+    }
+
+    /**
+     * Check the lieu balance stretches to the booking, and say so if it does not.
+     *
+     * The lieu this booking replaces is credited back first, so shortening a
+     * booking or moving it a day is never refused for hours it is giving up.
+     *
+     * @param  Collection<int, array{date: Carbon, hours: float}>  $days
+     */
+    protected function lieuCovers(Collection $days, ?float $partDay): bool
+    {
+        $lieu = $this->lieuLedger();
+
+        $wanted = round($days->sum(fn (array $day): float => $partDay !== null
+            ? min($partDay, $day['hours'])
+            : $day['hours']), 2);
+
+        $dates = $days->map(fn (array $day): string => $day['date']->toDateString());
+
+        $replaced = LeaveDay::query()
+            ->where('type', LeaveType::Lieu)
+            ->where(function (Builder $query) use ($dates): void {
+                $query->whereIn('date', $dates);
+
+                if ($this->editingId !== null) {
+                    $query->orWhere('leave_request_id', $this->editingId);
+                }
+            })
+            ->get();
+
+        $credit = round($replaced->sum(fn (LeaveDay $day): float => $lieu->effectiveHours($day)), 2);
+
+        if ($lieu->canAfford($wanted, $credit)) {
+            return true;
+        }
+
+        $this->addError('from', 'That would take '.number_format($wanted, 2).'h of lieu, and you have only '
+            .number_format($lieu->balance() + $credit, 2).'h banked. Track some time in lieu first.');
+
+        return false;
+    }
+
+    /**
+     * Open the form to set the lieu balance tracking started from.
+     */
+    public function editOpening(): void
+    {
+        $this->resetValidation();
+
+        $lieu = $this->lieuLedger();
+
+        $this->opening = $lieu->openingWasEntered() ? (string) $lieu->openingBalance() : '';
+        $this->showingOpening = true;
+    }
+
+    /**
+     * Save the opening lieu balance, or clear it back to the configured one.
+     */
+    public function saveOpening(): void
+    {
+        $this->validate([
+            'opening' => ['nullable', 'numeric', 'min:0', 'max:500'],
+        ], [
+            'opening.min' => 'An opening balance cannot be negative.',
+        ]);
+
+        $lieu = $this->lieuLedger();
+        $opening = $this->opening === '' ? (float) config('leave.lieu_opening_hours', 0) : round((float) $this->opening, 2);
+
+        // Lowering the opening figure below the lieu already taken would leave
+        // the pot overdrawn, which is the one thing it must never be.
+        if ($opening + $lieu->earned() - $lieu->booked() < 0) {
+            $this->addError('opening', 'You have already taken '.number_format($lieu->booked(), 2)
+                .'h of lieu against '.number_format($lieu->earned(), 2).'h worked, so the balance cannot open below '
+                .number_format(max(0, $lieu->booked() - $lieu->earned()), 2).'h.');
+
+            return;
+        }
+
+        Setting::write('lieu_opening_hours', $this->opening === '' ? null : (string) $opening);
+
+        $this->showingOpening = false;
     }
 
     /**
@@ -313,6 +430,7 @@ new class extends Component {
                 : $ledger->requests()->filter(
                     fn (LeaveRequest $request): bool => in_array($request->days->first()?->type, $this->tabTypes(), true),
                 ),
+            'lieu' => $this->lieuLedger(),
             'otherLeave' => $otherLeave,
             'otherUsed' => round($otherLeave->sum('used'), 2),
             'sickness' => $sickness,
@@ -348,10 +466,10 @@ new class extends Component {
     </div>
 
 
-    {{-- Where each pot stands, before you pick one. The tabs below carry the
-         working out; this only says what is left and where to look. --}}
+    {{-- Where each pot stands, before you open one. The summary is always on
+         view; the working out is only there when you ask for it. --}}
     @php
-        $tile = fn (string $key): string => 'rounded-xl border px-4 py-3 text-start transition '.($tab === $key
+        $potBox = fn (string $key): string => 'overflow-hidden rounded-xl border transition '.($tab === $key
             ? 'border-zinc-300 bg-ledger dark:border-zinc-600 dark:bg-white/[0.03]'
             : 'border-zinc-200 hover:border-zinc-300 dark:border-zinc-700 dark:hover:border-zinc-600');
         $tileLabel = 'text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500';
@@ -359,406 +477,430 @@ new class extends Component {
         $tileNote = 'mt-1 text-xs text-zinc-400 dark:text-zinc-500';
     @endphp
 
-    <section class="mt-6 grid gap-3 sm:grid-cols-3">
-        <button type="button" class="{{ $tile('annual') }}" wire:click="$set('tab', 'annual')">
-            <div class="{{ $tileLabel }}">Annual leave</div>
+    {{-- Each pot is counted a different way, so each keeps its working out
+         behind its own summary: open one and the detail belongs to it. --}}
+    <section class="mt-6 flex flex-col gap-3">
+        <div class="{{ $potBox('annual') }}" wire:key="pot-annual">
+            <button
+                type="button"
+                class="flex w-full items-start justify-between gap-4 px-5 py-4 text-start"
+                wire:click="togglePot('annual')"
+                aria-expanded="{{ $tab === 'annual' ? 'true' : 'false' }}"
+            >
+                <span class="min-w-0 flex-1">
+                    <div class="{{ $tileLabel }}">Annual leave</div>
 
-            <div class="mt-1 flex items-baseline gap-2">
-                <span class="{{ $tileFigure }} {{ $ledger->isOverdrawn() ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-800 dark:text-white' }}">
-                    {{ $hours($ledger->annualRemaining()) }}
-                </span>
-                <span class="text-sm text-zinc-500 dark:text-zinc-400">
-                    hours left of {{ $hours($ledger->annualEntitlement()) }}
-                </span>
-            </div>
-
-            <div class="{{ $tileNote }}">
-                <span class="tabular">{{ $hours($ledger->annualBooked()) }}</span>h booked
-                @if ($ledger->asDays($ledger->annualRemaining()) !== null)
-                    &middot; about {{ $ledger->asDays($ledger->annualRemaining()) }} days left
-                @endif
-            </div>
-        </button>
-
-        <button type="button" class="{{ $tile('other') }}" wire:click="$set('tab', 'other')">
-            <div class="{{ $tileLabel }}">Other leave</div>
-
-            @if ($otherLeave->isEmpty())
-                <div class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Nothing booked this year</div>
-                <div class="{{ $tileNote }}">None of it comes off your annual leave</div>
-            @else
-                <div class="mt-1 flex items-baseline gap-2">
-                    <span class="{{ $tileFigure }} text-zinc-800 dark:text-white">{{ $hours($otherUsed) }}</span>
-                    <span class="text-sm text-zinc-500 dark:text-zinc-400">
-                        hours taken across {{ $otherLeave->count() }} {{ Str::plural('type', $otherLeave->count()) }}
-                    </span>
-                </div>
-
-                <div class="{{ $tileNote }}">
-                    @php $overdrawn = $otherLeave->filter(fn ($other) => $other->isOverdrawn()); @endphp
-
-                    @if ($overdrawn->isNotEmpty())
-                        <span class="text-deficit dark:text-deficit-bright">
-                            {{ $overdrawn->map(fn ($other) => $other->type->label())->join(', ', ' and ') }}
-                            past its allowance
+                    <div class="mt-1 flex items-baseline gap-2">
+                        <span class="{{ $tileFigure }} {{ $ledger->isOverdrawn() ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-800 dark:text-white' }}">
+                            {{ $hours($ledger->annualRemaining()) }}
                         </span>
-                    @else
-                        Counted apart from your annual leave
-                    @endif
-                </div>
-            @endif
-        </button>
-
-        <button type="button" class="{{ $tile('sickness') }}" wire:click="$set('tab', 'sickness')">
-            <div class="{{ $tileLabel }}">Sickness</div>
-
-            @unless ($sickness->isConfigured())
-                <div class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">No length of service set</div>
-                <div class="{{ $tileNote }}">There is nothing to work sick pay out from</div>
-            @else
-                <div class="mt-1 flex items-baseline gap-2">
-                    <span class="{{ $tileFigure }} {{ $sickness->fullPayRemaining() <= 0 ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-800 dark:text-white' }}">
-                        {{ $hours($sickness->fullPayRemaining()) }}
-                    </span>
-                    <span class="text-sm text-zinc-500 dark:text-zinc-400">
-                        hours of full pay left of {{ $hours($sickness->fullPayEntitlement()) }}
-                    </span>
-                </div>
-
-                {{-- Sick pay runs over the twelve months before an absence, so it
-                     stays as at today however far the leave year is wound back. --}}
-                <div class="{{ $tileNote }}">
-                    then <span class="tabular">{{ $hours($sickness->halfPayRemaining()) }}</span>h at half pay
-                    &middot; rolling year to {{ $sickness->asAt->format('j M Y') }}
-                </div>
-            @endunless
-        </button>
-    </section>
-
-    {{-- Annual leave, the other absence types and sickness are each counted a
-         different way, so they are kept on their own tabs rather than stacked. --}}
-    <flux:navbar class="mt-6 border-b border-zinc-200 dark:border-zinc-700">
-        @foreach ($tabs as $key => $label)
-            <flux:navbar.item
-                :current="$tab === $key"
-                wire:click="$set('tab', '{{ $key }}')"
-                wire:key="tab-{{ $key }}"
-            >{{ $label }}</flux:navbar.item>
-        @endforeach
-    </flux:navbar>
-
-    @if ($tab === 'annual')
-        {{-- One balance, with the public holiday adjustment shown as a line in it
-             rather than as a second pot to reconcile by eye. --}}
-        <section class="mt-6 rounded-xl border border-zinc-200 bg-ledger px-5 py-5 dark:border-zinc-700 dark:bg-white/[0.03]">
-            <div class="text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">Bookable leave</div>
-
-            <div class="mt-1 flex items-baseline gap-3">
-                <span class="tabular text-4xl font-medium leading-none {{ $ledger->isOverdrawn() ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-800 dark:text-white' }}">
-                    {{ $hours($ledger->annualRemaining()) }}
-                </span>
-                <span class="text-sm text-zinc-500 dark:text-zinc-400">
-                    hours left of {{ $hours($ledger->annualEntitlement()) }}
-                    @if ($ledger->asDays($ledger->annualRemaining()) !== null)
-                        &middot; about {{ $ledger->asDays($ledger->annualRemaining()) }} days
-                    @endif
-                </span>
-            </div>
-
-            <dl class="mt-5 flex max-w-md flex-col gap-1 text-sm">
-                <div class="flex items-baseline justify-between gap-2">
-                    <dt class="flex items-baseline gap-2 text-zinc-500 dark:text-zinc-400">
-                        Carried in from {{ $leaveYear->previous()->start->format('Y') }}/{{ $leaveYear->previous()->end->format('y') }}
-                        <span class="text-xs text-zinc-400 dark:text-zinc-500">
-                            {{ $ledger->carryWasEntered() ? 'entered' : 'calculated' }}
+                        <span class="text-sm text-zinc-500 dark:text-zinc-400">
+                            hours left of {{ $hours($ledger->annualEntitlement()) }}
                         </span>
-                        <flux:button
-                            icon="pencil-square"
-                            size="xs"
-                            variant="subtle"
-                            inset="top bottom"
-                            wire:click="editCarryover"
-                            aria-label="Change what is carried in"
-                        />
-                    </dt>
-                    <dd class="tabular {{ $ledger->carriedIn() < 0 ? 'text-deficit dark:text-deficit-bright' : '' }}">
-                        {{ $ledger->carriedIn() > 0 ? '+' : '' }}{{ $hours($ledger->carriedIn()) }}
-                    </dd>
-                </div>
+                    </div>
 
-                <div class="flex justify-between">
-                    <dt class="text-zinc-500 dark:text-zinc-400">
-                        @if ($ledger->isAwarded())
-                            Annual leave, as awarded
-                        @else
-                            {{ config('leave.annual_leave_days') }} days at your hours and weeks
+                    <div class="{{ $tileNote }}">
+                        <span class="tabular">{{ $hours($ledger->annualBooked()) }}</span>h booked
+                        @if ($ledger->asDays($ledger->annualRemaining()) !== null)
+                            &middot; about {{ $ledger->asDays($ledger->annualRemaining()) }} days left
                         @endif
-                    </dt>
-                    <dd class="tabular">{{ $hours($ledger->baseEntitlement()) }}</dd>
-                </div>
-
-                @unless ($ledger->isAwarded())
-                    <div class="flex justify-between">
-                        <dt class="text-zinc-500 dark:text-zinc-400">
-                            {{ $ledger->publicHolidayAdjustment() >= 0 ? 'Public holidays left over' : 'Public holidays over the allowance' }}
-                        </dt>
-                        <dd class="tabular {{ $ledger->publicHolidayAdjustment() < 0 ? 'text-deficit dark:text-deficit-bright' : 'text-surplus dark:text-surplus-bright' }}">
-                            {{ $ledger->publicHolidayAdjustment() > 0 ? '+' : '' }}{{ $hours($ledger->publicHolidayAdjustment()) }}
-                        </dd>
                     </div>
-                @endunless
+                </span>
 
-                <div class="flex justify-between ps-4 text-xs text-zinc-400 dark:text-zinc-500">
-                    <dt>
-                        {{ config('leave.public_holiday_days') }} days at your hours
-                        @if (config('leave.prorate_public_holidays')) and weeks @endif
-                    </dt>
-                    <dd class="tabular">{{ $hours($ledger->publicHolidayEntitlement()) }}</dd>
-                </div>
+                <flux:icon.chevron-down class="mt-1 size-4 shrink-0 text-zinc-400 transition dark:text-zinc-500 {{ $tab === 'annual' ? 'rotate-180' : '' }}" />
+            </button>
 
-                <div class="flex justify-between ps-4 text-xs text-zinc-400 dark:text-zinc-500">
-                    <dt>less taken by bank holidays</dt>
-                    <dd class="tabular">{{ $hours($ledger->publicHolidaysUsed()) }}</dd>
-                </div>
+            @if ($tab === 'annual')
+                <div class="border-t border-zinc-200 px-5 pb-5 dark:border-zinc-700">
+                    {{-- One balance, with the public holiday adjustment shown as a line in it
+                         rather than as a second pot to reconcile by eye. --}}
+                    <section class="mt-5">
+                        <div class="text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">Bookable leave</div>
 
-                @if ($ledger->isAwarded())
-                    <div class="flex justify-between ps-4 text-xs text-zinc-400 dark:text-zinc-500">
-                        <dt>&mdash; already inside the awarded figure</dt>
-                        <dd class="tabular">{{ $ledger->publicHolidayAdjustment() > 0 ? '+' : '' }}{{ $hours($ledger->publicHolidayAdjustment()) }}</dd>
-                    </div>
-                @endif
-
-                <div class="mt-1 flex justify-between border-t border-zinc-200 pt-1 font-medium dark:border-zinc-700">
-                    <dt class="text-zinc-500 dark:text-zinc-400">Entitlement</dt>
-                    <dd class="tabular">{{ $hours($ledger->annualEntitlement()) }}</dd>
-                </div>
-
-                <div class="flex justify-between">
-                    <dt class="text-zinc-500 dark:text-zinc-400">Booked</dt>
-                    <dd class="tabular">{{ $hours($ledger->annualBooked()) }}</dd>
-                </div>
-            </dl>
-        </section>
-
-        <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
-            You work <span class="tabular">{{ $hours($ledger->weeklyHours()) }}</span>h a week against a full time
-            <span class="tabular">{{ $hours($ledger->fullTimeWeeklyHours()) }}</span>h, over
-            <span class="tabular">{{ $ledger->contractedWeeks() }}</span> contracted weeks of
-            <span class="tabular">{{ config('leave.weeks_per_year') }}</span>.
-            @if ($ledger->isAwarded())
-                Your awarded figure already settles public holidays: an allowance of
-                <span class="tabular">{{ $hours($ledger->publicHolidayEntitlement()) }}</span>h against
-                <span class="tabular">{{ $hours($ledger->publicHolidaysUsed()) }}</span>h taken by bank holidays.
-            @elseif ($ledger->publicHolidayAdjustment() > 0)
-                Bank holidays miss your working days often enough to leave
-                <span class="tabular">{{ $hours($ledger->publicHolidayAdjustment()) }}</span>h of the allowance
-                unspent, which is added to your bookable leave.
-            @elseif ($ledger->publicHolidayAdjustment() < 0)
-                Bank holidays fall on your working days more often than the allowance covers, so
-                <span class="tabular">{{ $hours($ledger->publicHolidayShortfall()) }}</span>h of bookable leave is
-                making up the difference.
-            @endif
-        </p>
-
-    @endif
-
-    @if ($tab === 'other')
-        {{-- Absence granted apart from annual leave. Each type stands on its own,
-             so nothing here has cost a holiday. --}}
-        @if ($otherLeave->isNotEmpty())
-            <section class="mt-8">
-                <h2 class="text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">
-                    Other leave
-                </h2>
-
-                <dl class="mt-3 flex flex-col gap-1 text-sm">
-                    @foreach ($otherLeave as $other)
-                        <div class="flex items-baseline justify-between gap-2 border-b border-zinc-100 py-1.5 last:border-0 dark:border-zinc-800"
-                             wire:key="other-{{ $other->type->value }}">
-                            <dt class="text-zinc-600 dark:text-zinc-300">{{ $other->type->label() }}</dt>
-
-                            <dd class="tabular text-zinc-500 dark:text-zinc-400">
-                                @if ($other->isCapped())
-                                    <span class="font-medium {{ $other->isOverdrawn() ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-800 dark:text-white' }}">
-                                        {{ $hours($other->remaining()) }}
-                                    </span>
-                                    h left of {{ $hours($other->entitlement) }}
-                                @else
-                                    {{ $hours($other->used) }}h taken
+                        <div class="mt-1 flex items-baseline gap-3">
+                            <span class="tabular text-4xl font-medium leading-none {{ $ledger->isOverdrawn() ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-800 dark:text-white' }}">
+                                {{ $hours($ledger->annualRemaining()) }}
+                            </span>
+                            <span class="text-sm text-zinc-500 dark:text-zinc-400">
+                                hours left of {{ $hours($ledger->annualEntitlement()) }}
+                                @if ($ledger->asDays($ledger->annualRemaining()) !== null)
+                                    &middot; about {{ $ledger->asDays($ledger->annualRemaining()) }} days
                                 @endif
-                            </dd>
+                            </span>
                         </div>
-                    @endforeach
-                </dl>
-            </section>
-        @endif
 
-    @endif
-
-    @if ($tab === 'sickness')
-        {{-- Occupational sick pay. Banded by length of service and reduced by
-             the sickness taken in the twelve months before the absence begins,
-             so it belongs to a rolling year rather than to a leave year. It is
-             shown as at today, which is what is being counted right now. --}}
-        <section class="mt-8">
-            <h2 class="text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">
-                Sickness allowance
-            </h2>
-
-            <p class="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-                Counting the sickness taken between {{ $sickness->windowLabel() }}.
-                Anything older has rolled out of the window.
-            </p>
-
-            @if (! $sickness->isConfigured())
-                <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
-                    Set <span class="font-mono text-xs">service_started</span> in your leave config to see what sick pay
-                    your length of service earns. Until then there is nothing to work it out from.
-                </p>
-            @else
-                <div class="mt-3 grid gap-3 sm:grid-cols-2">
-                    @foreach ([['Full pay', $sickness->fullPayRemaining(), $sickness->fullPayEntitlement()], ['Half pay', $sickness->halfPayRemaining(), $sickness->halfPayEntitlement()]] as [$label, $left, $total])
-                        <div class="rounded-xl border border-zinc-200 px-4 py-3 dark:border-zinc-700">
-                            <div class="text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">
-                                {{ $label }}
+                        <dl class="mt-5 flex max-w-md flex-col gap-1 text-sm">
+                            <div class="flex items-baseline justify-between gap-2">
+                                <dt class="flex items-baseline gap-2 text-zinc-500 dark:text-zinc-400">
+                                    Carried in from {{ $leaveYear->previous()->start->format('Y') }}/{{ $leaveYear->previous()->end->format('y') }}
+                                    <span class="text-xs text-zinc-400 dark:text-zinc-500">
+                                        {{ $ledger->carryWasEntered() ? 'entered' : 'calculated' }}
+                                    </span>
+                                    <flux:button
+                                        icon="pencil-square"
+                                        size="xs"
+                                        variant="subtle"
+                                        inset="top bottom"
+                                        wire:click="editCarryover"
+                                        aria-label="Change what is carried in"
+                                    />
+                                </dt>
+                                <dd class="tabular {{ $ledger->carriedIn() < 0 ? 'text-deficit dark:text-deficit-bright' : '' }}">
+                                    {{ $ledger->carriedIn() > 0 ? '+' : '' }}{{ $hours($ledger->carriedIn()) }}
+                                </dd>
                             </div>
 
-                            <div class="mt-1 flex items-baseline gap-2">
-                                <span class="tabular text-2xl font-medium leading-none {{ $left <= 0 ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-800 dark:text-white' }}">
-                                    {{ $hours($left) }}
-                                </span>
-                                <span class="text-sm text-zinc-500 dark:text-zinc-400">
-                                    hours left of {{ $hours($total) }}
-                                </span>
+                            <div class="flex justify-between">
+                                <dt class="text-zinc-500 dark:text-zinc-400">
+                                    @if ($ledger->isAwarded())
+                                        Annual leave, as awarded
+                                    @else
+                                        {{ config('leave.annual_leave_days') }} days at your hours and weeks
+                                    @endif
+                                </dt>
+                                <dd class="tabular">{{ $hours($ledger->baseEntitlement()) }}</dd>
                             </div>
 
-                            @if ($sickness->asMonths($left) !== null)
-                                <div class="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
-                                    about {{ $sickness->asMonths($left) }} {{ Str::plural('month', $sickness->asMonths($left)) }} of pay
+                            @unless ($ledger->isAwarded())
+                                <div class="flex justify-between">
+                                    <dt class="text-zinc-500 dark:text-zinc-400">
+                                        {{ $ledger->publicHolidayAdjustment() >= 0 ? 'Public holidays left over' : 'Public holidays over the allowance' }}
+                                    </dt>
+                                    <dd class="tabular {{ $ledger->publicHolidayAdjustment() < 0 ? 'text-deficit dark:text-deficit-bright' : 'text-surplus dark:text-surplus-bright' }}">
+                                        {{ $ledger->publicHolidayAdjustment() > 0 ? '+' : '' }}{{ $hours($ledger->publicHolidayAdjustment()) }}
+                                    </dd>
+                                </div>
+                            @endunless
+
+                            <div class="flex justify-between ps-4 text-xs text-zinc-400 dark:text-zinc-500">
+                                <dt>
+                                    {{ config('leave.public_holiday_days') }} days at your hours
+                                    @if (config('leave.prorate_public_holidays')) and weeks @endif
+                                </dt>
+                                <dd class="tabular">{{ $hours($ledger->publicHolidayEntitlement()) }}</dd>
+                            </div>
+
+                            <div class="flex justify-between ps-4 text-xs text-zinc-400 dark:text-zinc-500">
+                                <dt>less taken by bank holidays</dt>
+                                <dd class="tabular">{{ $hours($ledger->publicHolidaysUsed()) }}</dd>
+                            </div>
+
+                            @if ($ledger->isAwarded())
+                                <div class="flex justify-between ps-4 text-xs text-zinc-400 dark:text-zinc-500">
+                                    <dt>&mdash; already inside the awarded figure</dt>
+                                    <dd class="tabular">{{ $ledger->publicHolidayAdjustment() > 0 ? '+' : '' }}{{ $hours($ledger->publicHolidayAdjustment()) }}</dd>
                                 </div>
                             @endif
-                        </div>
-                    @endforeach
+
+                            <div class="mt-1 flex justify-between border-t border-zinc-200 pt-1 font-medium dark:border-zinc-700">
+                                <dt class="text-zinc-500 dark:text-zinc-400">Entitlement</dt>
+                                <dd class="tabular">{{ $hours($ledger->annualEntitlement()) }}</dd>
+                            </div>
+
+                            <div class="flex justify-between">
+                                <dt class="text-zinc-500 dark:text-zinc-400">Booked</dt>
+                                <dd class="tabular">{{ $hours($ledger->annualBooked()) }}</dd>
+                            </div>
+                        </dl>
+                    </section>
+
+                    <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
+                        You work <span class="tabular">{{ $hours($ledger->weeklyHours()) }}</span>h a week against a full time
+                        <span class="tabular">{{ $hours($ledger->fullTimeWeeklyHours()) }}</span>h, over
+                        <span class="tabular">{{ $ledger->contractedWeeks() }}</span> contracted weeks of
+                        <span class="tabular">{{ config('leave.weeks_per_year') }}</span>.
+                        @if ($ledger->isAwarded())
+                            Your awarded figure already settles public holidays: an allowance of
+                            <span class="tabular">{{ $hours($ledger->publicHolidayEntitlement()) }}</span>h against
+                            <span class="tabular">{{ $hours($ledger->publicHolidaysUsed()) }}</span>h taken by bank holidays.
+                        @elseif ($ledger->publicHolidayAdjustment() > 0)
+                            Bank holidays miss your working days often enough to leave
+                            <span class="tabular">{{ $hours($ledger->publicHolidayAdjustment()) }}</span>h of the allowance
+                            unspent, which is added to your bookable leave.
+                        @elseif ($ledger->publicHolidayAdjustment() < 0)
+                            Bank holidays fall on your working days more often than the allowance covers, so
+                            <span class="tabular">{{ $hours($ledger->publicHolidayShortfall()) }}</span>h of bookable leave is
+                            making up the difference.
+                        @endif
+                    </p>
+
+                    @include('pages.leave.requests', ['pot' => 'annual', 'hours' => $hours])
                 </div>
-
-                <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
-                    Your {{ $sickness->yearOfServiceLabel() }}
-                    earns {{ $sickness->band()->label() }}, worth
-                    <span class="tabular">{{ $hours($sickness->monthHours()) }}</span>h a month at your pattern.
-                    @if ($sickness->used() > 0)
-                        <span class="tabular">{{ $hours($sickness->used()) }}</span>h of sickness since
-                        {{ $sickness->windowStart()->format('j M Y') }} has already come off it.
-                    @else
-                        No sickness has been recorded since {{ $sickness->windowStart()->format('j M Y') }}.
-                    @endif
-                </p>
-            @endif
-        </section>
-
-    @endif
-
-    {{-- Booked leave, as it was asked for. --}}
-    <section class="mt-8">
-        <div class="flex items-baseline justify-between">
-            <h2 class="text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">
-                {{ ['annual' => 'Booked leave', 'other' => 'Booked absence', 'sickness' => 'Sickness in the rolling year'][$tab] ?? 'Booked leave' }}
-            </h2>
-
-            @if ($requests->isNotEmpty())
-                <flux:text variant="subtle" class="text-sm">
-                    {{ $requests->count() }} {{ Str::plural('request', $requests->count()) }}
-                </flux:text>
             @endif
         </div>
 
-        @if ($requests->isEmpty())
-            <p class="mt-2 border-t border-zinc-200 pt-3 text-sm text-zinc-400 dark:border-zinc-700 dark:text-zinc-500">
-                No leave booked this year. Choose a first and last day and the hours come from your pattern.
-            </p>
-        @else
-            <div class="mt-2 overflow-x-auto">
-                <table class="w-full text-sm">
-                    <thead>
-                        <tr class="border-b border-zinc-200 text-[0.7rem] uppercase tracking-[0.12em] text-zinc-400 dark:border-zinc-700 dark:text-zinc-500">
-                            <th class="py-1.5 text-start font-medium">Dates</th>
-                            @if ($tab === 'other')
-                                <th class="py-1.5 text-start font-medium">Type</th>
-                            @endif
-                            <th class="py-1.5 text-end font-medium">Days</th>
-                            <th class="py-1.5 text-end font-medium">Bank holidays</th>
-                            <th class="py-1.5 text-end font-medium">Hours</th>
-                            <th class="w-20"><span class="sr-only">Actions</span></th>
-                        </tr>
-                    </thead>
+        <div class="{{ $potBox('lieu') }}" wire:key="pot-lieu">
+            <button
+                type="button"
+                class="flex w-full items-start justify-between gap-4 px-5 py-4 text-start"
+                wire:click="togglePot('lieu')"
+                aria-expanded="{{ $tab === 'lieu' ? 'true' : 'false' }}"
+            >
+                <span class="min-w-0 flex-1">
+                    <div class="{{ $tileLabel }}">Time off in lieu</div>
 
-                    <tbody>
-                        @foreach ($requests as $request)
-                            @php
-                                $holidays = $ledger->requestPublicHolidays($request);
-                                $requestType = $request->days->first()?->type;
-                            @endphp
+                    <div class="mt-1 flex items-baseline gap-2">
+                        <span class="{{ $tileFigure }} text-zinc-800 dark:text-white">{{ $hours($lieu->balance()) }}</span>
+                        <span class="text-sm text-zinc-500 dark:text-zinc-400">hours banked</span>
+                    </div>
 
-                            <tr class="border-b border-zinc-100 dark:border-zinc-800" wire:key="request-{{ $request->id }}">
-                                <td class="tabular py-1.5 text-zinc-700 dark:text-zinc-200">
-                                    {{ $request->label() }}
-                                </td>
+                    <div class="{{ $tileNote }}">
+                        @if ($lieu->isUsed())
+                            <span class="tabular">{{ $hours($lieu->earned()) }}</span>h worked in lieu
+                            &middot; <span class="tabular">{{ $hours($lieu->booked()) }}</span>h taken back
+                        @else
+                            Track time as lieu on the dashboard to bank it
+                        @endif
+                    </div>
+                </span>
 
-                                @if ($tab === 'other')
-                                    <td class="py-1.5 text-zinc-500 dark:text-zinc-400">
-                                        {{ $requestType?->label() ?? '—' }}
-                                    </td>
+                <flux:icon.chevron-down class="mt-1 size-4 shrink-0 text-zinc-400 transition dark:text-zinc-500 {{ $tab === 'lieu' ? 'rotate-180' : '' }}" />
+            </button>
+
+            @if ($tab === 'lieu')
+                <div class="border-t border-zinc-200 px-5 pb-5 dark:border-zinc-700">
+                    {{-- Lieu is not awarded for a year: it is banked by working it and spent
+                         by booking it, so it runs on across leave years and never goes
+                         below zero. --}}
+                    <section class="mt-5">
+                        <div class="text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">Banked in lieu</div>
+
+                        <div class="mt-1 flex items-baseline gap-3">
+                            <span class="tabular text-4xl font-medium leading-none text-zinc-800 dark:text-white">
+                                {{ $hours($lieu->balance()) }}
+                            </span>
+                            <span class="text-sm text-zinc-500 dark:text-zinc-400">
+                                hours to take back
+                                @if ($lieu->asDays($lieu->balance()) !== null && $lieu->balance() > 0)
+                                    &middot; about {{ $lieu->asDays($lieu->balance()) }} days
                                 @endif
+                            </span>
+                        </div>
 
-                                <td class="tabular py-1.5 text-end text-zinc-500 dark:text-zinc-400">
-                                    {{ $ledger->requestDays($request) }}
-                                </td>
+                        <dl class="mt-5 flex max-w-md flex-col gap-1 text-sm">
+                            <div class="flex items-baseline justify-between gap-2">
+                                <dt class="flex items-baseline gap-2 text-zinc-500 dark:text-zinc-400">
+                                    Opening balance
+                                    <span class="text-xs text-zinc-400 dark:text-zinc-500">
+                                        {{ $lieu->openingWasEntered() ? 'entered' : 'configured' }}
+                                    </span>
+                                    <flux:button
+                                        icon="pencil-square"
+                                        size="xs"
+                                        variant="subtle"
+                                        inset="top bottom"
+                                        wire:click="editOpening"
+                                        aria-label="Change the opening lieu balance"
+                                    />
+                                </dt>
+                                <dd class="tabular">{{ $hours($lieu->openingBalance()) }}</dd>
+                            </div>
 
-                                <td class="tabular py-1.5 text-end {{ $holidays > 0 ? 'text-zinc-700 dark:text-zinc-200' : 'text-zinc-300 dark:text-zinc-600' }}">
-                                    {{ $holidays > 0 ? $holidays : '—' }}
-                                </td>
+                            <div class="flex justify-between">
+                                <dt class="text-zinc-500 dark:text-zinc-400">Worked in lieu since</dt>
+                                <dd class="tabular text-surplus dark:text-surplus-bright">+{{ $hours($lieu->earned()) }}</dd>
+                            </div>
 
-                                <td class="tabular py-1.5 text-end text-zinc-700 dark:text-zinc-200">
-                                    {{ $hours($ledger->requestHours($request)) }}
-                                </td>
+                            <div class="flex justify-between">
+                                <dt class="text-zinc-500 dark:text-zinc-400">Taken back as leave</dt>
+                                <dd class="tabular">&minus;{{ $hours($lieu->booked()) }}</dd>
+                            </div>
 
-                                <td class="py-1.5 text-end">
-                                    <div class="flex justify-end gap-1">
-                                        <flux:button
-                                            icon="pencil-square"
-                                            size="xs"
-                                            variant="subtle"
-                                            inset="top bottom"
-                                            wire:click="editLeave({{ $request->id }})"
-                                            :aria-label="'Edit leave from '.$request->starts_on->format('j F Y')"
-                                        />
+                            <div class="mt-1 flex justify-between border-t border-zinc-200 pt-1 font-medium dark:border-zinc-700">
+                                <dt class="text-zinc-500 dark:text-zinc-400">Balance</dt>
+                                <dd class="tabular">{{ $hours($lieu->balance()) }}</dd>
+                            </div>
+                        </dl>
+                    </section>
 
-                                        <flux:button
-                                            icon="trash"
-                                            size="xs"
-                                            variant="subtle"
-                                            inset="top bottom"
-                                            wire:click="deleteLeave({{ $request->id }})"
-                                            wire:confirm="Cancel this leave? The {{ $ledger->requestDays($request) }} {{ Str::plural('day', $ledger->requestDays($request)) }} it booked will be given back."
-                                            :aria-label="'Cancel leave from '.$request->starts_on->format('j F Y')"
-                                        />
+                    <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
+                        Lieu is banked by starting the timer as time off in lieu rather than as contracted hours, so those hours
+                        stay out of your flexi balance and wait here instead. You can only book what you have already worked: the
+                        balance never goes below zero. It carries on across leave years, which is why this pot ignores the year
+                        above.
+                    </p>
+
+                    @include('pages.leave.requests', ['pot' => 'lieu', 'hours' => $hours])
+                </div>
+            @endif
+        </div>
+
+        <div class="{{ $potBox('other') }}" wire:key="pot-other">
+            <button
+                type="button"
+                class="flex w-full items-start justify-between gap-4 px-5 py-4 text-start"
+                wire:click="togglePot('other')"
+                aria-expanded="{{ $tab === 'other' ? 'true' : 'false' }}"
+            >
+                <span class="min-w-0 flex-1">
+                    <div class="{{ $tileLabel }}">Other leave</div>
+
+                    @if ($otherLeave->isEmpty())
+                        <div class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Nothing booked this year</div>
+                        <div class="{{ $tileNote }}">None of it comes off your annual leave</div>
+                    @else
+                        <div class="mt-1 flex items-baseline gap-2">
+                            <span class="{{ $tileFigure }} text-zinc-800 dark:text-white">{{ $hours($otherUsed) }}</span>
+                            <span class="text-sm text-zinc-500 dark:text-zinc-400">
+                                hours taken across {{ $otherLeave->count() }} {{ Str::plural('type', $otherLeave->count()) }}
+                            </span>
+                        </div>
+
+                        <div class="{{ $tileNote }}">
+                            @php $overdrawn = $otherLeave->filter(fn ($other) => $other->isOverdrawn()); @endphp
+
+                            @if ($overdrawn->isNotEmpty())
+                                <span class="text-deficit dark:text-deficit-bright">
+                                    {{ $overdrawn->map(fn ($other) => $other->type->label())->join(', ', ' and ') }}
+                                    past its allowance
+                                </span>
+                            @else
+                                Counted apart from your annual leave
+                            @endif
+                        </div>
+                    @endif
+                </span>
+
+                <flux:icon.chevron-down class="mt-1 size-4 shrink-0 text-zinc-400 transition dark:text-zinc-500 {{ $tab === 'other' ? 'rotate-180' : '' }}" />
+            </button>
+
+            @if ($tab === 'other')
+                <div class="border-t border-zinc-200 px-5 pb-5 dark:border-zinc-700">
+                    {{-- Absence granted apart from annual leave. Each type stands on its own,
+                         so nothing here has cost a holiday. --}}
+                    @if ($otherLeave->isNotEmpty())
+                        <section class="mt-8">
+                            <h2 class="text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">
+                                Other leave
+                            </h2>
+
+                            <dl class="mt-3 flex flex-col gap-1 text-sm">
+                                @foreach ($otherLeave as $other)
+                                    <div class="flex items-baseline justify-between gap-2 border-b border-zinc-100 py-1.5 last:border-0 dark:border-zinc-800"
+                                         wire:key="other-{{ $other->type->value }}">
+                                        <dt class="text-zinc-600 dark:text-zinc-300">{{ $other->type->label() }}</dt>
+
+                                        <dd class="tabular text-zinc-500 dark:text-zinc-400">
+                                            @if ($other->isCapped())
+                                                <span class="font-medium {{ $other->isOverdrawn() ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-800 dark:text-white' }}">
+                                                    {{ $hours($other->remaining()) }}
+                                                </span>
+                                                h left of {{ $hours($other->entitlement) }}
+                                            @else
+                                                {{ $hours($other->used) }}h taken
+                                            @endif
+                                        </dd>
                                     </div>
-                                </td>
-                            </tr>
-                        @endforeach
-                    </tbody>
+                                @endforeach
+                            </dl>
+                        </section>
+                    @endif
 
-                    <tfoot>
-                        <tr class="font-medium">
-                            <td class="py-1.5">Total</td>
-                            <td class="tabular py-1.5 text-end">{{ $requests->sum(fn ($r) => $ledger->requestDays($r)) }}</td>
-                            <td class="tabular py-1.5 text-end">{{ $requests->sum(fn ($r) => $ledger->requestPublicHolidays($r)) ?: '—' }}</td>
-                            <td class="tabular py-1.5 text-end">{{ $hours($ledger->annualBooked()) }}</td>
-                            <td></td>
-                        </tr>
-                    </tfoot>
-                </table>
-            </div>
-        @endif
+                    @include('pages.leave.requests', ['pot' => 'other', 'hours' => $hours])
+                </div>
+            @endif
+        </div>
+
+        <div class="{{ $potBox('sickness') }}" wire:key="pot-sickness">
+            <button
+                type="button"
+                class="flex w-full items-start justify-between gap-4 px-5 py-4 text-start"
+                wire:click="togglePot('sickness')"
+                aria-expanded="{{ $tab === 'sickness' ? 'true' : 'false' }}"
+            >
+                <span class="min-w-0 flex-1">
+                    <div class="{{ $tileLabel }}">Sickness</div>
+
+                    @unless ($sickness->isConfigured())
+                        <div class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">No length of service set</div>
+                        <div class="{{ $tileNote }}">There is nothing to work sick pay out from</div>
+                    @else
+                        <div class="mt-1 flex items-baseline gap-2">
+                            <span class="{{ $tileFigure }} {{ $sickness->fullPayRemaining() <= 0 ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-800 dark:text-white' }}">
+                                {{ $hours($sickness->fullPayRemaining()) }}
+                            </span>
+                            <span class="text-sm text-zinc-500 dark:text-zinc-400">
+                                hours of full pay left of {{ $hours($sickness->fullPayEntitlement()) }}
+                            </span>
+                        </div>
+
+                        {{-- Sick pay runs over the twelve months before an absence, so it
+                             stays as at today however far the leave year is wound back. --}}
+                        <div class="{{ $tileNote }}">
+                            then <span class="tabular">{{ $hours($sickness->halfPayRemaining()) }}</span>h at half pay
+                            &middot; rolling year to {{ $sickness->asAt->format('j M Y') }}
+                        </div>
+                    @endunless
+                </span>
+
+                <flux:icon.chevron-down class="mt-1 size-4 shrink-0 text-zinc-400 transition dark:text-zinc-500 {{ $tab === 'sickness' ? 'rotate-180' : '' }}" />
+            </button>
+
+            @if ($tab === 'sickness')
+                <div class="border-t border-zinc-200 px-5 pb-5 dark:border-zinc-700">
+                    {{-- Occupational sick pay. Banded by length of service and reduced by
+                         the sickness taken in the twelve months before the absence begins,
+                         so it belongs to a rolling year rather than to a leave year. It is
+                         shown as at today, which is what is being counted right now. --}}
+                    <section class="mt-5">
+                        <h2 class="text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">
+                            Sickness allowance
+                        </h2>
+
+                        <p class="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+                            Counting the sickness taken between {{ $sickness->windowLabel() }}.
+                            Anything older has rolled out of the window.
+                        </p>
+
+                        @if (! $sickness->isConfigured())
+                            <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
+                                Set <span class="font-mono text-xs">service_started</span> in your leave config to see what sick pay
+                                your length of service earns. Until then there is nothing to work it out from.
+                            </p>
+                        @else
+                            <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                                @foreach ([['Full pay', $sickness->fullPayRemaining(), $sickness->fullPayEntitlement()], ['Half pay', $sickness->halfPayRemaining(), $sickness->halfPayEntitlement()]] as [$label, $left, $total])
+                                    <div class="rounded-xl border border-zinc-200 px-4 py-3 dark:border-zinc-700">
+                                        <div class="text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">
+                                            {{ $label }}
+                                        </div>
+
+                                        <div class="mt-1 flex items-baseline gap-2">
+                                            <span class="tabular text-2xl font-medium leading-none {{ $left <= 0 ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-800 dark:text-white' }}">
+                                                {{ $hours($left) }}
+                                            </span>
+                                            <span class="text-sm text-zinc-500 dark:text-zinc-400">
+                                                hours left of {{ $hours($total) }}
+                                            </span>
+                                        </div>
+
+                                        @if ($sickness->asMonths($left) !== null)
+                                            <div class="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+                                                about {{ $sickness->asMonths($left) }} {{ Str::plural('month', $sickness->asMonths($left)) }} of pay
+                                            </div>
+                                        @endif
+                                    </div>
+                                @endforeach
+                            </div>
+
+                            <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
+                                Your {{ $sickness->yearOfServiceLabel() }}
+                                earns {{ $sickness->band()->label() }}, worth
+                                <span class="tabular">{{ $hours($sickness->monthHours()) }}</span>h a month at your pattern.
+                                @if ($sickness->used() > 0)
+                                    <span class="tabular">{{ $hours($sickness->used()) }}</span>h of sickness since
+                                    {{ $sickness->windowStart()->format('j M Y') }} has already come off it.
+                                @else
+                                    No sickness has been recorded since {{ $sickness->windowStart()->format('j M Y') }}.
+                                @endif
+                            </p>
+                        @endif
+                    </section>
+
+                    @include('pages.leave.requests', ['pot' => 'sickness', 'hours' => $hours])
+                </div>
+            @endif
+        </div>
     </section>
 
     <flux:modal wire:model="showingForm" class="max-w-md">
@@ -773,7 +915,8 @@ new class extends Component {
                     @endforeach
                 </flux:select>
                 <flux:description>
-                    Only annual leave comes off your bookable balance.
+                    Only annual leave comes off your bookable balance. Time off in lieu comes off what you have
+                    banked by working it.
                 </flux:description>
                 <flux:error name="type" />
             </flux:field>
@@ -833,6 +976,28 @@ new class extends Component {
             <div class="flex gap-2">
                 <flux:button type="submit" variant="primary" :disabled="$chosenDays->isEmpty()">Save</flux:button>
                 <flux:button variant="ghost" wire:click="$set('showingForm', false)">Cancel</flux:button>
+            </div>
+        </form>
+    </flux:modal>
+
+    <flux:modal wire:model="showingOpening" class="max-w-sm">
+        <form wire:submit="saveOpening" class="flex flex-col gap-4">
+            <flux:heading size="lg">Opening lieu balance</flux:heading>
+
+            <flux:field>
+                <flux:label>Hours already owed to you</flux:label>
+                <flux:description>
+                    What you were owed in lieu before you started tracking it here. Everything since is worked out
+                    from your sessions.
+                </flux:description>
+                <flux:input type="number" step="0.25" min="0" wire:model="opening"
+                            placeholder="{{ $hours($lieu->openingBalance()) }}" />
+                <flux:error name="opening" />
+            </flux:field>
+
+            <div class="flex gap-2">
+                <flux:button type="submit" variant="primary">Save</flux:button>
+                <flux:button variant="ghost" wire:click="$set('showingOpening', false)">Cancel</flux:button>
             </div>
         </form>
     </flux:modal>

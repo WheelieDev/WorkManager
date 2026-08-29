@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Enums\Weekday;
+use App\Enums\WorkKind;
 use App\Models\BankHoliday;
 use App\Models\LeaveDay;
 use App\Models\WorkPattern;
@@ -28,6 +29,13 @@ class FlexiCalculator
      * @var array<string, float>
      */
     protected array $worked = [];
+
+    /**
+     * Cached hours worked in lieu, keyed by date.
+     *
+     * @var array<string, float>
+     */
+    protected array $lieu = [];
 
     /**
      * Cached bank holiday titles, keyed by date.
@@ -114,8 +122,9 @@ class FlexiCalculator
     /**
      * Get the hours actually worked on the given date.
      *
-     * Only completed sessions count. A running timer moves the balance when it
-     * is stopped, not before.
+     * Only completed sessions count, and only contracted ones. A running timer
+     * moves the balance when it is stopped, not before, and time worked in lieu
+     * is banked as leave rather than settled here.
      */
     public function workedHours(DateTimeInterface $date): float
     {
@@ -124,6 +133,7 @@ class FlexiCalculator
         return $this->worked[$key] ??= round(
             WorkSession::query()
                 ->completed()
+                ->countingTowardsFlexi()
                 ->startedOn(Carbon::parse($date))
                 ->get()
                 ->sum(fn (WorkSession $session): float => $session->hours()),
@@ -132,7 +142,7 @@ class FlexiCalculator
     }
 
     /**
-     * Load worked hours for a date range in one query.
+     * Load worked and lieu hours for a date range in one query.
      *
      * Without this, a period balance costs a query per day, and the period
      * view would multiply that by six weeks.
@@ -150,12 +160,40 @@ class FlexiCalculator
 
         for ($date = $from->copy(); $date->lessThanOrEqualTo($to); $date = $date->addDay()) {
             $key = $date->toDateString();
+            $onDay = $byDate->get($key, collect());
 
             $this->worked[$key] ??= round(
-                $byDate->get($key, collect())->sum(fn (WorkSession $session): float => $session->hours()),
+                $onDay->filter(fn (WorkSession $session): bool => $session->kind->countsTowardsFlexi())
+                    ->sum(fn (WorkSession $session): float => $session->hours()),
+                2,
+            );
+
+            $this->lieu[$key] ??= round(
+                $onDay->where('kind', WorkKind::Lieu)->sum(fn (WorkSession $session): float => $session->hours()),
                 2,
             );
         }
+    }
+
+    /**
+     * Get the hours worked in lieu on the given date.
+     *
+     * These are shown beside the day's figures rather than in them: they buy
+     * time off later instead of answering to the pattern now.
+     */
+    public function lieuHours(DateTimeInterface $date): float
+    {
+        $key = Carbon::parse($date)->toDateString();
+
+        return $this->lieu[$key] ??= round(
+            WorkSession::query()
+                ->completed()
+                ->ofKind(WorkKind::Lieu)
+                ->startedOn(Carbon::parse($date))
+                ->get()
+                ->sum(fn (WorkSession $session): float => $session->hours()),
+            2,
+        );
     }
 
     /**

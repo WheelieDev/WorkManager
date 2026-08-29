@@ -66,6 +66,12 @@
                         </div>
                     @endif
 
+                    @if ($d['lieu'] > 0)
+                        <div class="truncate text-[0.7rem] text-zinc-500 dark:text-zinc-400" title="Banked as time off in lieu">
+                            Lieu {{ number_format($d['lieu'], 2) }}h
+                        </div>
+                    @endif
+
                     <div class="min-h-[1.25rem]">
                         @forelse ($d['sessions'] as $session)
                             <div class="group/entry flex items-center justify-between gap-1" wire:key="session-{{ $session->id }}">
@@ -75,7 +81,8 @@
                                     </span>
                                 @else
                                     <button type="button"
-                                            class="tabular truncate text-xs text-zinc-700 hover:underline dark:text-zinc-200"
+                                            class="tabular truncate text-xs {{ $session->isLieu() ? 'text-zinc-400 dark:text-zinc-500' : 'text-zinc-700 dark:text-zinc-200' }} hover:underline"
+                                            title="{{ $session->kind->label() }}"
                                             wire:click="editSession({{ $session->id }})">{{ $session->started_at->format('H:i') }}&ndash;{{ $session->ended_at->format('H:i') }}</button>
 
                                     <button type="button"

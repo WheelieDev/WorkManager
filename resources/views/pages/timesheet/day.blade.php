@@ -24,6 +24,14 @@
                     Annual leave {{ number_format($day['leave'], 2) }}h
                 </span>
             @endif
+
+            {{-- Lieu is worked but not counted here: it is banked as leave, so
+                 it sits beside the day's figures rather than inside them. --}}
+            @if ($day['lieu'] > 0)
+                <span class="text-xs text-zinc-500 dark:text-zinc-400">
+                    Lieu banked {{ number_format($day['lieu'], 2) }}h
+                </span>
+            @endif
         </div>
 
         <div class="flex items-baseline gap-3 text-sm">
@@ -59,6 +67,7 @@
                 @if ($session->isRunning())
                     <span class="tabular text-sm text-surplus dark:text-surplus-bright">
                         {{ $session->started_at->format('H:i') }} &ndash; running
+                        @if ($session->isLieu()) &middot; in lieu @endif
                     </span>
                     <span class="text-xs text-zinc-400 dark:text-zinc-500">Stop the timer on the dashboard</span>
                 @else
@@ -69,6 +78,10 @@
                     </button>
 
                     <div class="flex items-center gap-3">
+                        @if ($session->isLieu())
+                            <span class="text-[0.7rem] uppercase tracking-[0.12em] text-zinc-400 dark:text-zinc-500">In lieu</span>
+                        @endif
+
                         <span class="tabular text-sm text-zinc-400 dark:text-zinc-500">{{ number_format($session->hours(), 2) }}h</span>
                         <button type="button"
                                 class="text-sm text-zinc-300 opacity-0 transition hover:text-deficit focus-visible:opacity-100 group-hover/entry:opacity-100 dark:text-zinc-600"

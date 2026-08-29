@@ -560,21 +560,31 @@ it('shortens a request and gives the days back', function () {
 |--------------------------------------------------------------------------
 */
 
-it('summarises every pot above the tabs', function () {
+it('summarises every pot, with the open one carrying its working out', function () {
     config(['leave.service_started' => '2020-01-01']);
     LeaveDay::factory()->create(['date' => '2026-09-08', 'type' => LeaveType::Hospital, 'hours' => 3]);
 
     Livewire::test('pages::leave')
-        ->assertSeeInOrder(['Annual leave', 'Other leave', 'Sickness', 'Bookable leave'])
+        // Annual opens first, so its detail sits between its own summary and
+        // the pots below it rather than at the foot of the page.
+        ->assertSeeInOrder(['Annual leave', 'Bookable leave', 'Time off in lieu', 'Other leave', 'Sickness'])
         ->assertSee('hours taken across 2 types')
         ->assertSee('hours of full pay left of');
-})->note('The tabs hold the working out; the overview only says where to look.');
+})->note('Every summary is always on view; only the open pot shows its working out.');
 
-it('opens a tab from its tile', function () {
+it('opens a pot from its summary and closes it again', function () {
     Livewire::test('pages::leave')
-        ->set('tab', 'sickness')
-        ->assertSeeHtml('wire:click="$set(\'tab\', \'annual\')"');
-})->note('The summary is the way into the detail, from whichever tab you are on.');
+        ->call('togglePot', 'sickness')
+        ->assertSet('tab', 'sickness')
+        ->assertSee('Sickness allowance')
+        // One pot at a time: the annual working out went away with the click.
+        ->assertDontSee('Bookable leave')
+        ->call('togglePot', 'sickness')
+        ->assertSet('tab', '')
+        ->assertDontSee('Sickness allowance')
+        // Closed or open, the summaries stay.
+        ->assertSee('Annual leave');
+})->note('The summaries are the way in and out of the detail.');
 
 it('holds the sickness summary to the rolling year as the leave year is wound back', function () {
     config(['leave.service_started' => '2020-01-01']);

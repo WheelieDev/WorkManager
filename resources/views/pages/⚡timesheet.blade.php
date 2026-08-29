@@ -1,10 +1,12 @@
 <?php
 
+use App\Enums\WorkKind;
 use App\Models\WorkSession;
 use App\Support\FlexiCalculator;
 use App\Support\FlexiPeriod;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Validation\Rule;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 
@@ -36,6 +38,8 @@ new class extends Component {
     public string $start_time = '';
 
     public string $end_time = '';
+
+    public string $kind = WorkKind::Contracted->value;
 
     public bool $showingForm = false;
 
@@ -107,7 +111,7 @@ new class extends Component {
      */
     public function addSession(string $date): void
     {
-        $this->reset('editingId', 'start_time', 'end_time');
+        $this->reset('editingId', 'start_time', 'end_time', 'kind');
         $this->resetValidation();
 
         $this->date = $date;
@@ -127,6 +131,7 @@ new class extends Component {
         $this->date = $session->date()->toDateString();
         $this->start_time = $session->started_at->format('H:i');
         $this->end_time = $session->ended_at?->format('H:i') ?? '';
+        $this->kind = $session->kind->value;
         $this->showingForm = true;
     }
 
@@ -139,6 +144,7 @@ new class extends Component {
             'date' => ['required', 'date'],
             'start_time' => ['required', 'date_format:H:i'],
             'end_time' => ['required', 'date_format:H:i', 'after:start_time'],
+            'kind' => ['required', Rule::enum(WorkKind::class)],
         ], [
             'end_time.after' => 'The end time must be after the start time.',
         ]);
@@ -146,6 +152,7 @@ new class extends Component {
         $attributes = [
             'started_at' => Carbon::parse("{$validated['date']} {$validated['start_time']}"),
             'ended_at' => Carbon::parse("{$validated['date']} {$validated['end_time']}"),
+            'kind' => WorkKind::from($validated['kind']),
         ];
 
         if ($this->editingId !== null) {
@@ -223,6 +230,7 @@ new class extends Component {
             'limit' => $limit,
             'gaugePosition' => (max(-$limit, min($limit, $balance)) + $limit) / (2 * $limit) * 100,
             'daysLeft' => max(0, (int) now()->startOfDay()->diffInDays($period->end->copy()->startOfDay(), false)),
+            'kinds' => WorkKind::cases(),
             'trackingStart' => FlexiPeriod::trackingStart(),
             'showsTrackingStart' => $period->startsPartWayThrough(),
             'stepLabel' => match ($this->mode) {
@@ -257,6 +265,7 @@ new class extends Component {
             'isTracked' => $calculator->isTracked($date),
             'bankHoliday' => $calculator->bankHolidayTitle($date),
             'leave' => $calculator->leaveHours($date),
+            'lieu' => $calculator->lieuHours($date),
             'isVisible' => $this->allDays
                 || $calculator->isPatternWorkingDay($date)
                 || $onDay->isNotEmpty()
@@ -393,6 +402,16 @@ new class extends Component {
 
             <flux:error name="start_time" />
             <flux:error name="end_time" />
+
+            <flux:field>
+                <flux:label>Tracking</flux:label>
+                <flux:radio.group wire:model="kind" variant="segmented" size="sm">
+                    @foreach ($kinds as $workKind)
+                        <flux:radio value="{{ $workKind->value }}" label="{{ $workKind->shortLabel() }}" />
+                    @endforeach
+                </flux:radio.group>
+                <flux:error name="kind" />
+            </flux:field>
 
             <div class="flex gap-2">
                 <flux:button type="submit" variant="primary">Save</flux:button>

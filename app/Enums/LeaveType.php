@@ -24,6 +24,8 @@ enum LeaveType: string
 
     case Sickness = 'sickness';
 
+    case Lieu = 'lieu';
+
     case Unpaid = 'unpaid';
 
     /**
@@ -39,6 +41,7 @@ enum LeaveType: string
             self::PhasedReturn => 'Phased return',
             self::Volunteering => 'Volunteering leave',
             self::Sickness => 'Sickness',
+            self::Lieu => 'Time off in lieu',
             self::Unpaid => 'Unpaid or other',
         };
     }
@@ -52,6 +55,17 @@ enum LeaveType: string
     public function drawsOnAnnualLeave(): bool
     {
         return $this === self::Annual;
+    }
+
+    /**
+     * Determine whether this type draws on the time off in lieu balance.
+     *
+     * Lieu is banked by working it rather than awarded for the year, so it has
+     * a running balance of its own instead of an entitlement.
+     */
+    public function drawsOnLieu(): bool
+    {
+        return $this === self::Lieu;
     }
 
     /**
@@ -108,13 +122,18 @@ enum LeaveType: string
     /**
      * Get the types that do not draw on the annual leave balance.
      *
+     * Sickness and time off in lieu keep their own accounting, so neither
+     * belongs among the types measured in days against a leave year.
+     *
      * @return array<int, self>
      */
     public static function separate(): array
     {
         return array_values(array_filter(
             self::cases(),
-            fn (self $type): bool => ! $type->drawsOnAnnualLeave() && ! $type->usesSicknessAllowance(),
+            fn (self $type): bool => ! $type->drawsOnAnnualLeave()
+                && ! $type->usesSicknessAllowance()
+                && ! $type->drawsOnLieu(),
         ));
     }
 }
