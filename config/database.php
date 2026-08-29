@@ -48,6 +48,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Production Database
+    |--------------------------------------------------------------------------
+    |
+    | Where the live database lives, as a single URL, in the shape TablePlus
+    | and friends use: mysql://user:pass@host:3306/dbname?ssl-mode=REQUIRED.
+    | "php artisan db:sync" dumps it and imports the dump locally, so this is
+    | only ever read on a development machine and is never committed.
+    |
+    */
+
+    'production_url' => env('DB_PRODUCTION_URL'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Database Connections
     |--------------------------------------------------------------------------
     |
