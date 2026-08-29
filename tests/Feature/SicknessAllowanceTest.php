@@ -174,6 +174,21 @@ it('counts only sickness, not other absence', function () {
     expect((new SicknessLedger)->used())->toBe(0.0);
 });
 
+it('does not draw down sick pay for a month the pattern does not work', function () {
+    config(['leave.service_started' => '2020-01-01']);
+    $this->travelTo('2026-08-29');
+
+    // The pattern works every month but August, so an August absence costs
+    // nothing while an otherwise identical July one is paid for.
+    LeaveDay::factory()->create(['date' => '2026-08-12', 'type' => LeaveType::Sickness, 'hours' => 4]);
+
+    expect((new SicknessLedger)->used())->toBe(0.0);
+
+    LeaveDay::factory()->create(['date' => '2026-07-15', 'type' => LeaveType::Sickness, 'hours' => 4]);
+
+    expect((new SicknessLedger)->used())->toBe(4.0);
+})->note('A day off contract cannot draw down an entitlement it never earned.');
+
 /*
 |--------------------------------------------------------------------------
 | Spending full pay before half pay
