@@ -9,6 +9,7 @@ use App\Support\LeaveLedger;
 use App\Support\LeaveYear;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Validation\Rule;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 
@@ -23,6 +24,8 @@ new class extends Component {
     public string $to = '';
 
     public string $hours = '';
+
+    public string $type = LeaveType::Annual->value;
 
     public bool $showingForm = false;
 
@@ -67,7 +70,7 @@ new class extends Component {
      */
     public function bookLeave(?string $date = null): void
     {
-        $this->reset('editingId', 'hours');
+        $this->reset('editingId', 'hours', 'type');
         $this->resetValidation();
 
         $this->from = $date ?? now()->toDateString();
@@ -96,6 +99,7 @@ new class extends Component {
         $this->from = $request->starts_on->toDateString();
         $this->to = $request->ends_on->toDateString();
         $this->hours = $request->isSingleDay() ? (string) ($request->days->first()?->hours ?? '') : '';
+        $this->type = ($request->days->first()?->type ?? LeaveType::Annual)->value;
         $this->showingForm = true;
     }
 
@@ -144,6 +148,7 @@ new class extends Component {
             'from' => ['required', 'date'],
             'to' => ['required', 'date', 'after_or_equal:from'],
             'hours' => ['nullable', 'numeric', 'min:0.25', 'max:24'],
+            'type' => ['required', Rule::enum(LeaveType::class)],
         ], [
             'to.after_or_equal' => 'The last day cannot be before the first.',
             'hours.min' => 'Book at least a quarter of an hour.',
@@ -160,6 +165,8 @@ new class extends Component {
         // A single day may be taken in part; a range is taken whole.
         $partDay = $days->count() === 1 && $this->hours !== '' ? round((float) $this->hours, 2) : null;
 
+        $type = LeaveType::from($this->type);
+
         $request = $this->editingId !== null
             ? LeaveRequest::query()->findOrFail($this->editingId)
             : new LeaveRequest;
@@ -170,15 +177,17 @@ new class extends Component {
 
         $request->days()->delete();
 
-        // A day belongs to one request, so rebooking it moves it across.
+        // A day holds one entry per type, so rebooking moves that type across
+        // and leaves any other absence on the day untouched.
         LeaveDay::query()
+            ->where('type', $type)
             ->whereIn('date', $days->map(fn (array $day): string => $day['date']->toDateString()))
             ->delete();
 
         foreach ($days as $day) {
             $request->days()->create([
                 'date' => $day['date']->toDateString(),
-                'type' => LeaveType::Annual,
+                'type' => $type,
                 'hours' => $partDay !== null ? min($partDay, $day['hours']) : $day['hours'],
             ]);
         }
@@ -250,6 +259,7 @@ new class extends Component {
             'leaveYear' => $year,
             'ledger' => $ledger,
             'requests' => $ledger->requests(),
+            'otherLeave' => $ledger->otherLeave(),
         ];
     }
 }; ?>
@@ -385,6 +395,36 @@ new class extends Component {
         @endif
     </p>
 
+    {{-- Absence granted apart from annual leave. Each type stands on its own,
+         so nothing here has cost a holiday. --}}
+    @if ($otherLeave->isNotEmpty())
+        <section class="mt-8">
+            <h2 class="text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">
+                Other leave
+            </h2>
+
+            <dl class="mt-3 flex flex-col gap-1 text-sm">
+                @foreach ($otherLeave as $other)
+                    <div class="flex items-baseline justify-between gap-2 border-b border-zinc-100 py-1.5 last:border-0 dark:border-zinc-800"
+                         wire:key="other-{{ $other->type->value }}">
+                        <dt class="text-zinc-600 dark:text-zinc-300">{{ $other->type->label() }}</dt>
+
+                        <dd class="tabular text-zinc-500 dark:text-zinc-400">
+                            @if ($other->isCapped())
+                                <span class="font-medium {{ $other->isOverdrawn() ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-800 dark:text-white' }}">
+                                    {{ $hours($other->remaining()) }}
+                                </span>
+                                h left of {{ $hours($other->entitlement) }}
+                            @else
+                                {{ $hours($other->used) }}h taken
+                            @endif
+                        </dd>
+                    </div>
+                @endforeach
+            </dl>
+        </section>
+    @endif
+
     {{-- Booked leave, as it was asked for. --}}
     <section class="mt-8">
         <div class="flex items-baseline justify-between">
@@ -409,6 +449,7 @@ new class extends Component {
                     <thead>
                         <tr class="border-b border-zinc-200 text-[0.7rem] uppercase tracking-[0.12em] text-zinc-400 dark:border-zinc-700 dark:text-zinc-500">
                             <th class="py-1.5 text-start font-medium">Dates</th>
+                            <th class="py-1.5 text-start font-medium">Type</th>
                             <th class="py-1.5 text-end font-medium">Days</th>
                             <th class="py-1.5 text-end font-medium">Bank holidays</th>
                             <th class="py-1.5 text-end font-medium">Hours</th>
@@ -420,11 +461,16 @@ new class extends Component {
                         @foreach ($requests as $request)
                             @php
                                 $holidays = $ledger->requestPublicHolidays($request);
+                                $requestType = $request->days->first()?->type;
                             @endphp
 
                             <tr class="border-b border-zinc-100 dark:border-zinc-800" wire:key="request-{{ $request->id }}">
                                 <td class="tabular py-1.5 text-zinc-700 dark:text-zinc-200">
                                     {{ $request->label() }}
+                                </td>
+
+                                <td class="py-1.5 text-zinc-500 dark:text-zinc-400">
+                                    {{ $requestType?->label() ?? '—' }}
                                 </td>
 
                                 <td class="tabular py-1.5 text-end text-zinc-500 dark:text-zinc-400">
@@ -482,6 +528,19 @@ new class extends Component {
     <flux:modal wire:model="showingForm" class="max-w-md">
         <form wire:submit="saveLeave" class="flex flex-col gap-4">
             <flux:heading size="lg">{{ $editingId ? 'Change leave' : 'Book leave' }}</flux:heading>
+
+            <flux:field>
+                <flux:label>Type</flux:label>
+                <flux:select wire:model.live="type">
+                    @foreach (\App\Enums\LeaveType::bookable() as $leaveType)
+                        <flux:select.option value="{{ $leaveType->value }}">{{ $leaveType->label() }}</flux:select.option>
+                    @endforeach
+                </flux:select>
+                <flux:description>
+                    Only annual leave comes off your bookable balance.
+                </flux:description>
+                <flux:error name="type" />
+            </flux:field>
 
             <div class="flex items-end gap-3">
                 <flux:field>

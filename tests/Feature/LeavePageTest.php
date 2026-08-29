@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\LeaveType;
 use App\Models\BankHoliday;
 use App\Models\LeaveCarryover;
 use App\Models\LeaveDay;
@@ -394,4 +395,72 @@ it('keeps the carried figure to its own leave year', function () {
         ->call('shiftYear', 1)
         ->call('editCarryover')
         ->assertSet('carryover', '');
+});
+
+it('books leave of a chosen type', function () {
+    Livewire::test('pages::leave')
+        ->call('bookLeave', '2026-09-10')
+        ->set('type', LeaveType::Hospital->value)
+        ->set('hours', '2')
+        ->call('saveLeave')
+        ->assertHasNoErrors();
+
+    expect(LeaveDay::query()->sole())
+        ->type->toBe(LeaveType::Hospital)
+        ->hours->toBe(2.0);
+});
+
+it('defaults a new booking back to annual leave', function () {
+    Livewire::test('pages::leave')
+        ->call('bookLeave', '2026-09-10')
+        ->set('type', LeaveType::Unpaid->value)
+        ->call('bookLeave', '2026-09-11')
+        ->assertSet('type', LeaveType::Annual->value);
+});
+
+it('keeps other absence on a day when leave is booked over it', function () {
+    Livewire::test('pages::leave')
+        ->call('bookLeave', '2026-09-10')
+        ->set('type', LeaveType::Hospital->value)
+        ->set('hours', '2')
+        ->call('saveLeave')
+        ->assertHasNoErrors();
+
+    Livewire::test('pages::leave')
+        ->call('bookLeave', '2026-09-10')
+        ->set('type', LeaveType::Annual->value)
+        ->call('saveLeave')
+        ->assertHasNoErrors();
+
+    expect(LeaveDay::query()->count())->toBe(2)
+        ->and(LeaveDay::query()->where('type', LeaveType::Hospital)->exists())->toBeTrue()
+        ->and(LeaveDay::query()->where('type', LeaveType::Annual)->exists())->toBeTrue();
+})->note('Rebooking must displace only its own type, or an appointment vanishes silently.');
+
+it('replaces leave of the same type when it is rebooked', function () {
+    foreach ([2, 3] as $hours) {
+        Livewire::test('pages::leave')
+            ->call('bookLeave', '2026-09-10')
+            ->set('type', LeaveType::Hospital->value)
+            ->set('hours', (string) $hours)
+            ->call('saveLeave')
+            ->assertHasNoErrors();
+    }
+
+    expect(LeaveDay::query()->sole()->hours)->toBe(3.0);
+});
+
+it('shows the other leave allowances', function () {
+    Livewire::test('pages::leave')
+        ->assertSee('Other leave')
+        ->assertSee('Volunteering leave')
+        ->assertSee('3.20');
+})->note('The volunteering day is 1 day x 7.5h x 0.4267.');
+
+it('rejects a type that does not exist', function () {
+    Livewire::test('pages::leave')
+        ->call('bookLeave', '2026-09-10')
+        ->set('type', 'sabbatical')
+        ->call('saveLeave')
+        ->assertHasErrors('type');
 });

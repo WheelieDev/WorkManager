@@ -1,10 +1,12 @@
 <?php
 
+use App\Enums\LeaveType;
 use App\Models\BankHoliday;
 use App\Models\LeaveCarryover;
 use App\Models\LeaveDay;
 use App\Models\WorkSession;
 use App\Support\FlexiCalculator;
+use App\Support\LeaveAllowance;
 use App\Support\LeaveLedger;
 use App\Support\LeaveYear;
 
@@ -348,3 +350,115 @@ it('counts a bank holiday once, not once per pot', function () {
         ->and($calculator->expectedHours($date))->toBe(0.0)
         ->and($calculator->deltaFor($date))->toBe(0.0);
 })->note('One day off, one deduction.');
+
+/*
+|--------------------------------------------------------------------------
+| Leave that is not annual leave
+|--------------------------------------------------------------------------
+*/
+
+it('does not charge other absence to the bookable balance', function () {
+    partTimePattern();
+
+    $before = (new LeaveLedger(new LeaveYear(2026)))->annualRemaining();
+
+    LeaveDay::factory()->create([
+        'date' => '2026-06-10',
+        'type' => LeaveType::Hospital,
+        'hours' => 4,
+    ]);
+
+    expect((new LeaveLedger(new LeaveYear(2026)))->annualRemaining())->toBe($before);
+})->note('A hospital appointment must never cost a holiday.');
+
+it('still charges annual leave to the bookable balance', function () {
+    partTimePattern();
+
+    $before = (new LeaveLedger(new LeaveYear(2026)))->annualRemaining();
+
+    LeaveDay::factory()->create([
+        'date' => '2026-06-10',
+        'type' => LeaveType::Annual,
+        'hours' => 4,
+    ]);
+
+    expect((new LeaveLedger(new LeaveYear(2026)))->annualRemaining())->toBe(round($before - 4, 2));
+});
+
+it('holds several kinds of absence on one day', function () {
+    partTimePattern();
+
+    foreach ([LeaveType::Annual, LeaveType::Hospital, LeaveType::Disability] as $type) {
+        LeaveDay::factory()->create(['date' => '2026-06-10', 'type' => $type, 'hours' => 1]);
+    }
+
+    $ledger = new LeaveLedger(new LeaveYear(2026));
+
+    expect($ledger->usedFor(LeaveType::Annual))->toBe(1.0)
+        ->and($ledger->usedFor(LeaveType::Hospital))->toBe(1.0)
+        ->and($ledger->usedFor(LeaveType::Disability))->toBe(1.0);
+})->note('A day can hold one entry of each type, not one entry in total.');
+
+it('pro-rata s the volunteering day against the pattern', function () {
+    partTimePattern();
+
+    // 1 day x 7.5h x 0.4267, and not reduced for unpaid weeks.
+    expect((new LeaveLedger(new LeaveYear(2026)))->entitlementFor(LeaveType::Volunteering))->toBe(3.2);
+});
+
+it('counts a volunteering day against its own allowance', function () {
+    partTimePattern();
+
+    LeaveDay::factory()->create([
+        'date' => '2026-06-10',
+        'type' => LeaveType::Volunteering,
+        'hours' => 3.2,
+    ]);
+
+    $ledger = new LeaveLedger(new LeaveYear(2026));
+
+    expect($ledger->usedFor(LeaveType::Volunteering))->toBe(3.2)
+        ->and($ledger->remainingFor(LeaveType::Volunteering))->toBe(0.0);
+});
+
+it('records absence that has no allowance without inventing a limit', function () {
+    partTimePattern();
+
+    LeaveDay::factory()->create([
+        'date' => '2026-06-10',
+        'type' => LeaveType::Disability,
+        'hours' => 4,
+    ]);
+
+    $ledger = new LeaveLedger(new LeaveYear(2026));
+
+    expect($ledger->entitlementFor(LeaveType::Disability))->toBeNull()
+        ->and($ledger->remainingFor(LeaveType::Disability))->toBeNull()
+        ->and($ledger->usedFor(LeaveType::Disability))->toBe(4.0);
+});
+
+it('lists only the other leave that has an allowance or some use', function () {
+    partTimePattern();
+
+    LeaveDay::factory()->create(['date' => '2026-06-10', 'type' => LeaveType::Hospital, 'hours' => 2]);
+
+    $listed = (new LeaveLedger(new LeaveYear(2026)))->otherLeave()
+        ->map(fn (LeaveAllowance $allowance): string => $allowance->type->value);
+
+    expect($listed)->toContain('volunteering')
+        ->and($listed)->toContain('hospital')
+        ->and($listed)->not->toContain('unpaid')
+        ->and($listed)->not->toContain('annual');
+})->note('Annual leave has its own balance above, and empty uncapped types are noise.');
+
+it('draws on the annual balance for annual leave alone', function () {
+    $drawing = array_filter(LeaveType::cases(), fn (LeaveType $type): bool => $type->drawsOnAnnualLeave());
+
+    expect($drawing)->toBe([LeaveType::Annual]);
+})->note('Adding a type must not quietly start charging it to holiday.');
+
+it('gives every leave type a label', function () {
+    foreach (LeaveType::cases() as $type) {
+        expect($type->label())->not->toBe('');
+    }
+});

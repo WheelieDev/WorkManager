@@ -94,6 +94,51 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Other Absence Types
+    |--------------------------------------------------------------------------
+    |
+    | Absence that is granted separately from annual leave, so booking it never
+    | costs a holiday. Each type may carry its own allowance in full time days,
+    | pro-rata'd by the hours the pattern works, exactly as annual leave is.
+    |
+    | A type with a null allowance is still recorded and totalled; it simply has
+    | no limit to measure against, which is the honest position until an
+    | employer sets one. Set 'prorate_by_weeks' where an allowance should also
+    | shrink for weeks not under contract.
+    |
+    */
+
+    'types' => [
+
+        'volunteering' => [
+            'days' => 1,
+            'prorate_by_weeks' => false,
+        ],
+
+        'disability' => [
+            'days' => null,
+        ],
+
+        'hospital' => [
+            'days' => null,
+        ],
+
+        'compassionate' => [
+            'days' => null,
+        ],
+
+        'phased-return' => [
+            'days' => null,
+        ],
+
+        'unpaid' => [
+            'days' => null,
+        ],
+
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Carryover
     |--------------------------------------------------------------------------
     |

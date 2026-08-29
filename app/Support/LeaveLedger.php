@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Enums\LeaveType;
 use App\Models\BankHoliday;
 use App\Models\LeaveCarryover;
 use App\Models\LeaveDay;
@@ -304,15 +305,78 @@ class LeaveLedger
     }
 
     /**
-     * Get the hours of leave booked in this year.
+     * Get the leave of one type booked in this year.
      *
-     * Only hours that actually buy time off count. Leave sitting on a bank
-     * holiday buys nothing, because the day is already paid for, and leave
-     * beyond what a day works cannot buy more than the day.
+     * @return Collection<int, LeaveDay>
+     */
+    public function bookedOf(LeaveType $type): Collection
+    {
+        return $this->booked()->filter(fn (LeaveDay $leave): bool => $leave->type === $type)->values();
+    }
+
+    /**
+     * Get the hours of annual leave booked in this year.
+     *
+     * Only annual leave draws on the annual pot, so a hospital appointment
+     * costs no holiday. Only hours that actually buy time off count: leave
+     * sitting on a bank holiday buys nothing, because the day is already paid
+     * for, and leave beyond what a day works cannot buy more than the day.
      */
     public function annualBooked(): float
     {
-        return round($this->booked()->sum(fn (LeaveDay $leave): float => $this->effectiveHours($leave)), 2);
+        return $this->usedFor(LeaveType::Annual);
+    }
+
+    /**
+     * Get the hours of one type used in this year.
+     */
+    public function usedFor(LeaveType $type): float
+    {
+        return round($this->bookedOf($type)->sum(fn (LeaveDay $leave): float => $this->effectiveHours($leave)), 2);
+    }
+
+    /**
+     * Get the allowance for a type in hours, or null where it has no limit.
+     */
+    public function entitlementFor(LeaveType $type): ?float
+    {
+        if ($type->drawsOnAnnualLeave()) {
+            return $this->annualEntitlement();
+        }
+
+        $days = $type->allowanceDays();
+
+        return $days === null ? null : $this->daysToHours($days, $type->proratesByWeeks());
+    }
+
+    /**
+     * Get what is left of a type's allowance, or null where it has no limit.
+     */
+    public function remainingFor(LeaveType $type): ?float
+    {
+        $entitlement = $this->entitlementFor($type);
+
+        return $entitlement === null ? null : round($entitlement - $this->usedFor($type), 2);
+    }
+
+    /**
+     * Get every type that has an allowance or something booked against it.
+     *
+     * @return Collection<int, LeaveAllowance>
+     */
+    public function otherLeave(): Collection
+    {
+        $allowances = [];
+
+        foreach (LeaveType::separate() as $type) {
+            $allowance = new LeaveAllowance($type, $this->entitlementFor($type), $this->usedFor($type));
+
+            if ($allowance->isWorthShowing()) {
+                $allowances[] = $allowance;
+            }
+        }
+
+        return collect($allowances);
     }
 
     /**
