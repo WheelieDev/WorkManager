@@ -50,6 +50,10 @@
                     <flux:navlist.item icon="calendar-days" :href="route('patterns.index')" :current="request()->routeIs('patterns.*')" wire:navigate>
                         Working patterns
                     </flux:navlist.item>
+
+                    <flux:navlist.item icon="cog-6-tooth" :href="route('settings')" :current="request()->routeIs('settings')" wire:navigate>
+                        Settings
+                    </flux:navlist.item>
                 </flux:navlist>
 
                 <flux:spacer />

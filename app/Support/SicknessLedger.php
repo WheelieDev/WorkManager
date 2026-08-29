@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Enums\LeaveType;
 use App\Models\LeaveDay;
+use App\Models\Setting;
 use App\Models\WorkPattern;
 use DateTimeInterface;
 use Illuminate\Support\Carbon;
@@ -22,6 +23,10 @@ class SicknessLedger
 {
     protected FlexiCalculator $calculator;
 
+    protected bool $serviceResolved = false;
+
+    protected ?Carbon $serviceStarted = null;
+
     public function __construct()
     {
         $this->calculator = new FlexiCalculator;
@@ -29,12 +34,25 @@ class SicknessLedger
 
     /**
      * Get the day continuous service began, if it has been set.
+     *
+     * A date entered on the settings page wins over the config default.
      */
     public function serviceStarted(): ?Carbon
     {
-        $started = config('leave.service_started');
+        // Held for the life of this ledger: one page asks for it many times,
+        // and holding it any longer than that would outlive a change to it.
+        if ($this->serviceResolved) {
+            return $this->serviceStarted;
+        }
 
-        return $started === null || $started === '' ? null : Carbon::parse((string) $started)->startOfDay();
+        $started = Setting::read('service_started', config('leave.service_started'));
+
+        $this->serviceResolved = true;
+        $this->serviceStarted = $started === null || $started === ''
+            ? null
+            : Carbon::parse((string) $started)->startOfDay();
+
+        return $this->serviceStarted;
     }
 
     /**
