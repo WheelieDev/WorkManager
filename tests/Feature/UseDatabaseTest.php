@@ -94,3 +94,16 @@ it('seeds days both over and under the pattern', function () {
     expect($deltas->contains(fn (float $delta): bool => $delta > 0))->toBeTrue()
         ->and($deltas->contains(fn (float $delta): bool => $delta < 0))->toBeTrue();
 })->note('A flat ledger would not exercise the bars either side of the line.');
+
+it('names a sandbox database alongside the real one on mysql', function () {
+    expect(config('database.sandbox_database'))->toBe(config('database.main_database').'_sandbox');
+})->note('The sandbox must never resolve to the same database as the real hours.');
+
+it('refuses to rebuild unless the connection really moved to the sandbox', function () {
+    // The marker says sandbox, but the connection is the in-memory database,
+    // which is never repointed. That mismatch is how --fresh could otherwise
+    // reach a database holding real hours.
+    $this->artisan('db:use', ['target' => 'sandbox', '--fresh' => true])
+        ->expectsOutputToContain('Refusing to rebuild')
+        ->assertFailed();
+})->note('--fresh drops every table it can reach, so the guard is the last line of defence.');

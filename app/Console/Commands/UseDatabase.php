@@ -51,8 +51,8 @@ class UseDatabase extends Command
 
         $this->call('config:clear');
 
-        if ($this->option('fresh')) {
-            $this->rebuildSandbox();
+        if ($this->option('fresh') && ! $this->rebuildSandbox()) {
+            return self::FAILURE;
         }
 
         $this->report();
@@ -67,7 +67,7 @@ class UseDatabase extends Command
     {
         File::put($this->marker(), "Switch back with: php artisan db:use main\n");
 
-        $this->pointAt(database_path('sandbox.sqlite'));
+        $this->pointAt(sandbox: true);
     }
 
     /**
@@ -77,24 +77,38 @@ class UseDatabase extends Command
     {
         File::delete($this->marker());
 
-        $this->pointAt(database_path('database.sqlite'));
+        $this->pointAt(sandbox: false);
     }
 
     /**
      * Repoint the live connection, so anything this command runs next lands
      * in the database that was just chosen rather than the previous one.
+     */
+    protected function pointAt(bool $sandbox): void
+    {
+        match ($this->driver()) {
+            'sqlite' => $this->pointSqliteAt($sandbox),
+            'mysql', 'mariadb' => $this->pointMysqlAt($sandbox),
+            default => null,
+        };
+    }
+
+    /**
+     * Repoint sqlite at the file backing the chosen database.
      *
      * Skipped when something else is already in charge of the connection,
      * such as the in-memory database the test suite runs against, which
      * purging would destroy.
      */
-    protected function pointAt(string $path): void
+    protected function pointSqliteAt(bool $sandbox): void
     {
         $managed = [database_path('database.sqlite'), database_path('sandbox.sqlite')];
 
         if (! in_array(config('database.connections.sqlite.database'), $managed, true)) {
             return;
         }
+
+        $path = $this->sqlitePath($sandbox);
 
         if (! File::exists($path)) {
             File::put($path, '');
@@ -106,13 +120,80 @@ class UseDatabase extends Command
     }
 
     /**
-     * Rebuild the sandbox from scratch and fill it with something to look at.
+     * Repoint mysql at the chosen database, creating it when it is new.
+     *
+     * The sandbox is a whole separate database rather than a separate file,
+     * so the same marker keeps working once a project moves off sqlite.
      */
-    protected function rebuildSandbox(): void
+    protected function pointMysqlAt(bool $sandbox): void
     {
+        $connection = $this->connection();
+        $database = $this->mysqlDatabase($sandbox);
+
+        $this->createMysqlDatabase($database);
+
+        config(["database.connections.{$connection}.database" => $database]);
+
+        DB::purge($connection);
+    }
+
+    /**
+     * Create the given mysql database if it does not exist yet.
+     */
+    protected function createMysqlDatabase(string $database): void
+    {
+        $connection = $this->connection();
+
+        /** @var array<string, mixed> $config */
+        $config = config("database.connections.{$connection}");
+
+        config(['database.connections.db_use_server' => ['database' => null] + $config]);
+
+        DB::connection('db_use_server')->statement(sprintf(
+            'create database if not exists `%s` character set %s collate %s',
+            str_replace('`', '', $database),
+            $config['charset'] ?? 'utf8mb4',
+            $config['collation'] ?? 'utf8mb4_unicode_ci',
+        ));
+
+        DB::purge('db_use_server');
+    }
+
+    /**
+     * Rebuild the sandbox from scratch and fill it with something to look at.
+     *
+     * Refuses to run unless the connection really is pointed at the sandbox,
+     * because --fresh drops every table it can reach.
+     */
+    protected function rebuildSandbox(): bool
+    {
+        if (! $this->isPointedAtSandbox()) {
+            $this->components->error(sprintf(
+                'Refusing to rebuild: the %s connection is pointed at [%s], not the sandbox.',
+                $this->connection(),
+                $this->currentDatabase(),
+            ));
+
+            return false;
+        }
+
         $this->call('migrate:fresh', ['--force' => true]);
         $this->call('db:seed', ['--class' => 'SandboxSeeder', '--force' => true]);
         $this->call('bank-holidays:sync');
+
+        return true;
+    }
+
+    /**
+     * Determine whether the live connection is really on the sandbox.
+     */
+    protected function isPointedAtSandbox(): bool
+    {
+        return match ($this->driver()) {
+            'sqlite' => $this->currentDatabase() === $this->sqlitePath(sandbox: true),
+            'mysql', 'mariadb' => $this->currentDatabase() === $this->mysqlDatabase(sandbox: true),
+            default => false,
+        };
     }
 
     /**
@@ -121,17 +202,68 @@ class UseDatabase extends Command
     protected function report(): void
     {
         $isSandbox = File::exists($this->marker());
-        $path = database_path($isSandbox ? 'sandbox.sqlite' : 'database.sqlite');
 
         $this->components->info(sprintf(
             'Using the %s database (%s).',
             $isSandbox ? 'SANDBOX' : 'main',
-            str_replace(base_path().'/', '', $path),
+            str_replace(base_path().'/', '', $this->describe($isSandbox)),
         ));
 
         if ($isSandbox) {
             $this->components->warn('Sandbox data is disposable. Run "php artisan db:use main" to go back.');
         }
+    }
+
+    /**
+     * Describe where the chosen database lives, for the driver in use.
+     */
+    protected function describe(bool $sandbox): string
+    {
+        return match ($this->driver()) {
+            'sqlite' => $this->sqlitePath($sandbox),
+            'mysql', 'mariadb' => $this->mysqlDatabase($sandbox),
+            default => (string) $this->currentDatabase(),
+        };
+    }
+
+    /**
+     * Get the sqlite file backing the chosen database.
+     */
+    protected function sqlitePath(bool $sandbox): string
+    {
+        return database_path($sandbox ? 'sandbox.sqlite' : 'database.sqlite');
+    }
+
+    /**
+     * Get the mysql database name for the chosen database.
+     */
+    protected function mysqlDatabase(bool $sandbox): string
+    {
+        return (string) config($sandbox ? 'database.sandbox_database' : 'database.main_database');
+    }
+
+    /**
+     * Get the database the live connection is currently opening.
+     */
+    protected function currentDatabase(): ?string
+    {
+        return config("database.connections.{$this->connection()}.database");
+    }
+
+    /**
+     * Get the name of the default connection.
+     */
+    protected function connection(): string
+    {
+        return (string) config('database.default');
+    }
+
+    /**
+     * Get the driver behind the default connection.
+     */
+    protected function driver(): ?string
+    {
+        return config("database.connections.{$this->connection()}.driver");
     }
 
     /**

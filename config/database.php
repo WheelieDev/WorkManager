@@ -3,6 +3,11 @@
 use Illuminate\Support\Str;
 use Pdo\Mysql;
 
+$usingSandbox = file_exists(storage_path('app/using-sandbox-database'));
+
+$mainDatabase = env('DB_DATABASE', 'laravel');
+$sandboxDatabase = env('DB_SANDBOX_DATABASE', $mainDatabase.'_sandbox');
+
 return [
 
     /*
@@ -26,15 +31,20 @@ return [
     |
     | A throwaway copy of the schema for trying things out, so real hours are
     | never at risk. Switch with "php artisan db:use sandbox". The marker file
-    | decides which sqlite file the default connection opens; it is never
-    | committed, and DB_DATABASE still overrides it, so tests keep using the
-    | in-memory database.
+    | decides which sqlite file, or which mysql database, the default
+    | connection opens, so the sandbox survives a change of driver. It is
+    | never committed, and for sqlite DB_DATABASE still overrides it, so tests
+    | keep using the in-memory database.
     |
     */
 
     'sandbox_marker' => storage_path('app/using-sandbox-database'),
 
-    'sandbox' => file_exists(storage_path('app/using-sandbox-database')),
+    'sandbox' => $usingSandbox,
+
+    'main_database' => $mainDatabase,
+
+    'sandbox_database' => $sandboxDatabase,
 
     /*
     |--------------------------------------------------------------------------
@@ -53,9 +63,7 @@ return [
             'driver' => 'sqlite',
             'url' => env('DB_URL'),
             'database' => env('DB_DATABASE', database_path(
-                file_exists(storage_path('app/using-sandbox-database'))
-                    ? 'sandbox.sqlite'
-                    : 'database.sqlite'
+                $usingSandbox ? 'sandbox.sqlite' : 'database.sqlite'
             )),
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
@@ -70,7 +78,7 @@ return [
             'url' => env('DB_URL'),
             'host' => env('DB_HOST', '127.0.0.1'),
             'port' => env('DB_PORT', '3306'),
-            'database' => env('DB_DATABASE', 'laravel'),
+            'database' => $usingSandbox ? $sandboxDatabase : $mainDatabase,
             'username' => env('DB_USERNAME', 'root'),
             'password' => env('DB_PASSWORD', ''),
             'unix_socket' => env('DB_SOCKET', ''),
