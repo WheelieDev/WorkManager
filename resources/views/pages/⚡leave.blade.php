@@ -74,6 +74,18 @@ new class extends Component {
     }
 
     /**
+     * Get the sickness ledger, as it stands today.
+     *
+     * Sick pay runs over the twelve months before an absence begins, so the
+     * figures are anchored to a day. Today is the day worth showing: it says
+     * what is being counted right now.
+     */
+    public function sicknessLedger(): SicknessLedger
+    {
+        return new SicknessLedger;
+    }
+
+    /**
      * Get the leave year on view.
      */
     public function leaveYear(): LeaveYear
@@ -285,6 +297,7 @@ new class extends Component {
     {
         $year = $this->leaveYear();
         $ledger = new LeaveLedger($year);
+        $sickness = $this->sicknessLedger();
 
         $days = $this->showingForm ? $this->daysInRange() : collect();
 
@@ -294,11 +307,13 @@ new class extends Component {
             'leaveYear' => $year,
             'ledger' => $ledger,
             'tabs' => $this->tabs(),
-            'requests' => $ledger->requests()->filter(
-                fn (LeaveRequest $request): bool => in_array($request->days->first()?->type, $this->tabTypes(), true),
-            ),
+            'requests' => $this->tab === 'sickness'
+                ? $sickness->requests()
+                : $ledger->requests()->filter(
+                    fn (LeaveRequest $request): bool => in_array($request->days->first()?->type, $this->tabTypes(), true),
+                ),
             'otherLeave' => $ledger->otherLeave(),
-            'sickness' => new SicknessLedger,
+            'sickness' => $sickness,
         ];
     }
 }; ?>
@@ -311,14 +326,22 @@ new class extends Component {
     <div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
         <div>
             <div class="text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">Leave</div>
-            <h1 class="mt-1 text-2xl font-medium text-zinc-800 dark:text-white">{{ $leaveYear->label() }}</h1>
+
+            {{-- Sick pay is not bounded by the leave year, so naming one here
+                 would say the figures below were for a period they are not. --}}
+            <h1 class="mt-1 text-2xl font-medium text-zinc-800 dark:text-white">
+                {{ $tab === 'sickness' ? 'Rolling year to '.$sickness->asAt->format('j M Y') : $leaveYear->label() }}
+            </h1>
         </div>
 
         <div class="flex items-center gap-1">
             <flux:button size="sm" variant="primary" icon="plus" wire:click="bookLeave">Book leave</flux:button>
-            <flux:button icon="chevron-left" size="sm" variant="subtle" wire:click="shiftYear(-1)" aria-label="Previous leave year" />
-            <flux:button size="sm" variant="subtle" wire:click="thisYear">This year</flux:button>
-            <flux:button icon="chevron-right" size="sm" variant="subtle" wire:click="shiftYear(1)" aria-label="Next leave year" />
+
+            @unless ($tab === 'sickness')
+                <flux:button icon="chevron-left" size="sm" variant="subtle" wire:click="shiftYear(-1)" aria-label="Previous leave year" />
+                <flux:button size="sm" variant="subtle" wire:click="thisYear">This year</flux:button>
+                <flux:button icon="chevron-right" size="sm" variant="subtle" wire:click="shiftYear(1)" aria-label="Next leave year" />
+            @endunless
         </div>
     </div>
 
@@ -484,13 +507,19 @@ new class extends Component {
     @endif
 
     @if ($tab === 'sickness')
-        {{-- Occupational sick pay. Banded by length of service and reduced by the
-             sickness taken in the rolling year before, so it is shown as at today
-             rather than for the leave year. --}}
+        {{-- Occupational sick pay. Banded by length of service and reduced by
+             the sickness taken in the twelve months before the absence begins,
+             so it belongs to a rolling year rather than to a leave year. It is
+             shown as at today, which is what is being counted right now. --}}
         <section class="mt-8">
             <h2 class="text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">
                 Sickness allowance
             </h2>
+
+            <p class="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+                Counting the sickness taken between {{ $sickness->windowLabel() }}.
+                Anything older has rolled out of the window.
+            </p>
 
             @if (! $sickness->isConfigured())
                 <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
@@ -543,7 +572,7 @@ new class extends Component {
     <section class="mt-8">
         <div class="flex items-baseline justify-between">
             <h2 class="text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">
-                {{ ['annual' => 'Booked leave', 'other' => 'Booked absence', 'sickness' => 'Recorded sickness'][$tab] ?? 'Booked leave' }}
+                {{ ['annual' => 'Booked leave', 'other' => 'Booked absence', 'sickness' => 'Sickness in the rolling year'][$tab] ?? 'Booked leave' }}
             </h2>
 
             @if ($requests->isNotEmpty())

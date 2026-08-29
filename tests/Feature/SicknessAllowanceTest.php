@@ -2,6 +2,7 @@
 
 use App\Enums\LeaveType;
 use App\Models\LeaveDay;
+use App\Models\LeaveRequest;
 use App\Support\SicknessLedger;
 
 beforeEach(function () {
@@ -158,8 +159,8 @@ it('excludes the first day of the absence from its own window', function () {
         'hours' => 4,
     ]);
 
-    expect((new SicknessLedger)->used(now()->parse('2026-06-10')))->toBe(0.0)
-        ->and((new SicknessLedger)->used(now()->parse('2026-06-11')))->toBe(4.0);
+    expect((new SicknessLedger('2026-06-10'))->used())->toBe(0.0)
+        ->and((new SicknessLedger('2026-06-11'))->used())->toBe(4.0);
 })->note('The policy counts the twelve months preceding the first day, not including it.');
 
 it('counts only sickness, not other absence', function () {
@@ -288,4 +289,64 @@ it('matches the band to the year of service the policy names', function () {
     // "During the 4th and 5th Year of Service: 5 months full and 5 months half."
     expect($ledger->yearOfServiceLabel())->toBe('4th year of service')
         ->and($ledger->band()->label())->toBe('5 months full pay and 5 months half pay');
+});
+
+/*
+|--------------------------------------------------------------------------
+| A rolling year, not a leave year
+|--------------------------------------------------------------------------
+*/
+
+it('runs its window back from the day the absence begins', function () {
+    $ledger = new SicknessLedger('2026-08-29');
+
+    expect($ledger->windowStart()->toDateString())->toBe('2025-08-29')
+        ->and($ledger->windowEnd()->toDateString())->toBe('2026-08-28')
+        ->and($ledger->windowLabel())->toBe('29 Aug 2025 - 28 Aug 2026');
+})->note('The window ends the day before, because the policy counts what precedes the absence.');
+
+it('moves the whole window when the absence begins on another day', function () {
+    expect((new SicknessLedger('2026-08-29'))->windowStart()->toDateString())->toBe('2025-08-29')
+        ->and((new SicknessLedger('2027-02-01'))->windowStart()->toDateString())->toBe('2026-02-01');
+})->note('A leave year would not move; a rolling year does.');
+
+it('ignores the leave year boundary entirely', function () {
+    config(['leave.service_started' => '2020-01-01']);
+
+    // The leave year turns over on 1 April, so these sit either side of it.
+    foreach (['2026-03-25', '2026-04-08'] as $date) {
+        LeaveDay::factory()->create([
+            'date' => $date,
+            'type' => LeaveType::Sickness,
+            'hours' => 4,
+        ]);
+    }
+
+    // Both are inside the twelve months before this day, so both count.
+    expect((new SicknessLedger('2026-06-10'))->used())->toBe(8.0);
+})->note('Sickness spanning the turn of the leave year is still one running total.');
+
+it('lists the sickness its window counts', function () {
+    config(['leave.service_started' => '2020-01-01']);
+
+    LeaveRequest::factory()
+        ->create(['starts_on' => '2026-06-10', 'ends_on' => '2026-06-10'])
+        ->days()->create(['date' => '2026-06-10', 'type' => LeaveType::Sickness, 'hours' => 4]);
+
+    LeaveRequest::factory()
+        ->create(['starts_on' => '2024-06-10', 'ends_on' => '2024-06-10'])
+        ->days()->create(['date' => '2024-06-10', 'type' => LeaveType::Sickness, 'hours' => 4]);
+
+    $requests = (new SicknessLedger('2026-08-29'))->requests();
+
+    expect($requests)->toHaveCount(1)
+        ->and($requests->first()->starts_on->toDateString())->toBe('2026-06-10');
+})->note('The list and the balance must agree on which absences count.');
+
+it('leaves other kinds of absence out of its list', function () {
+    LeaveRequest::factory()
+        ->create(['starts_on' => '2026-06-10', 'ends_on' => '2026-06-10'])
+        ->days()->create(['date' => '2026-06-10', 'type' => LeaveType::Annual, 'hours' => 4]);
+
+    expect((new SicknessLedger('2026-08-29'))->requests())->toBeEmpty();
 });

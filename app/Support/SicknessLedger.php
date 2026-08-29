@@ -4,9 +4,11 @@ namespace App\Support;
 
 use App\Enums\LeaveType;
 use App\Models\LeaveDay;
+use App\Models\LeaveRequest;
 use App\Models\Setting;
 use App\Models\WorkPattern;
 use DateTimeInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Number;
@@ -28,9 +30,18 @@ class SicknessLedger
 
     protected ?Carbon $serviceStarted = null;
 
-    public function __construct()
+    /**
+     * The day the absence begins, which every figure here is worked out from.
+     */
+    public readonly Carbon $asAt;
+
+    /**
+     * @param  DateTimeInterface|string|null  $asAt  The first day of the absence, or today.
+     */
+    public function __construct(DateTimeInterface|string|null $asAt = null)
     {
         $this->calculator = new FlexiCalculator;
+        $this->asAt = Carbon::parse($asAt ?? now())->startOfDay();
     }
 
     /**
@@ -67,7 +78,7 @@ class SicknessLedger
     /**
      * Get the completed months of service as at a date.
      */
-    public function monthsOfService(?DateTimeInterface $date = null): ?int
+    public function monthsOfService(): ?int
     {
         $started = $this->serviceStarted();
 
@@ -75,17 +86,15 @@ class SicknessLedger
             return null;
         }
 
-        $on = Carbon::parse($date ?? now())->startOfDay();
-
-        return $on->lessThan($started) ? 0 : (int) $started->diffInMonths($on);
+        return $this->asAt->lessThan($started) ? 0 : (int) $started->diffInMonths($this->asAt);
     }
 
     /**
      * Get the completed years of service as at a date.
      */
-    public function yearsOfService(?DateTimeInterface $date = null): ?int
+    public function yearsOfService(): ?int
     {
-        $months = $this->monthsOfService($date);
+        $months = $this->monthsOfService();
 
         return $months === null ? null : intdiv($months, 12);
     }
@@ -96,9 +105,9 @@ class SicknessLedger
      * The policy bands absence by the year being served rather than by the
      * years completed, so somebody three years in is in their fourth year.
      */
-    public function yearOfService(?DateTimeInterface $date = null): ?int
+    public function yearOfService(): ?int
     {
-        $years = $this->yearsOfService($date);
+        $years = $this->yearsOfService();
 
         return $years === null ? null : $years + 1;
     }
@@ -106,9 +115,9 @@ class SicknessLedger
     /**
      * Say which year of service a date falls in, as the policy words it.
      */
-    public function yearOfServiceLabel(?DateTimeInterface $date = null): ?string
+    public function yearOfServiceLabel(): ?string
     {
-        $year = $this->yearOfService($date);
+        $year = $this->yearOfService();
 
         return $year === null ? null : Number::ordinal($year).' year of service';
     }
@@ -119,9 +128,9 @@ class SicknessLedger
      * The longest band the service has reached wins, so a policy expressed as
      * "after five years" needs no special case.
      */
-    public function band(?DateTimeInterface $date = null): ?SicknessBand
+    public function band(): ?SicknessBand
     {
-        $months = $this->monthsOfService($date);
+        $months = $this->monthsOfService();
 
         if ($months === null) {
             return null;
@@ -137,10 +146,9 @@ class SicknessLedger
     /**
      * Get the hours a month of pay is worth at the pattern in effect.
      */
-    public function monthHours(?DateTimeInterface $date = null): float
+    public function monthHours(): float
     {
-        $on = Carbon::parse($date ?? now())->startOfDay();
-        $weekly = WorkPattern::inEffectOn($on)?->weeklyHours() ?? 0.0;
+        $weekly = WorkPattern::inEffectOn($this->asAt)?->weeklyHours() ?? 0.0;
         $weeksPerMonth = (float) config('leave.weeks_per_year') / 12;
 
         return round($weekly * $weeksPerMonth, 2);
@@ -149,31 +157,49 @@ class SicknessLedger
     /**
      * Get the full pay entitlement in hours, before anything already taken.
      */
-    public function fullPayEntitlement(?DateTimeInterface $date = null): float
+    public function fullPayEntitlement(): float
     {
-        $band = $this->band($date);
+        $band = $this->band();
 
-        return $band === null ? 0.0 : round($band->fullPayMonths * $this->monthHours($date), 2);
+        return $band === null ? 0.0 : round($band->fullPayMonths * $this->monthHours(), 2);
     }
 
     /**
      * Get the half pay entitlement in hours, before anything already taken.
      */
-    public function halfPayEntitlement(?DateTimeInterface $date = null): float
+    public function halfPayEntitlement(): float
     {
-        $band = $this->band($date);
+        $band = $this->band();
 
-        return $band === null ? 0.0 : round($band->halfPayMonths * $this->monthHours($date), 2);
+        return $band === null ? 0.0 : round($band->halfPayMonths * $this->monthHours(), 2);
     }
 
     /**
      * Get the first day of the rolling window that reduces the entitlement.
      */
-    public function windowStart(?DateTimeInterface $date = null): Carbon
+    public function windowStart(): Carbon
     {
         $months = (int) (config('leave.sickness.lookback_months') ?? 12);
 
-        return Carbon::parse($date ?? now())->startOfDay()->subMonths($months);
+        return $this->asAt->copy()->subMonths($months);
+    }
+
+    /**
+     * Get the last day the rolling window counts.
+     *
+     * The window runs up to but not including the day the absence begins.
+     */
+    public function windowEnd(): Carbon
+    {
+        return $this->asAt->copy()->subDay();
+    }
+
+    /**
+     * Describe the rolling window, which is what makes this unlike a leave year.
+     */
+    public function windowLabel(): string
+    {
+        return $this->windowStart()->format('j M Y').' - '.$this->windowEnd()->format('j M Y');
     }
 
     /**
@@ -183,25 +209,40 @@ class SicknessLedger
      *
      * @return Collection<int, LeaveDay>
      */
-    public function absencesBefore(?DateTimeInterface $date = null): Collection
+    public function absencesBefore(): Collection
     {
-        $on = Carbon::parse($date ?? now())->startOfDay();
-
         return LeaveDay::query()
             ->where('type', LeaveType::Sickness)
-            ->where('date', '>=', $this->windowStart($on)->toDateString())
-            ->where('date', '<', $on->toDateString())
+            ->where('date', '>=', $this->windowStart()->toDateString())
+            ->where('date', '<', $this->asAt->toDateString())
             ->orderBy('date')
+            ->get();
+    }
+
+    /**
+     * Get the sickness requests the window counts, newest first.
+     *
+     * @return Collection<int, LeaveRequest>
+     */
+    public function requests(): Collection
+    {
+        return LeaveRequest::query()
+            ->with('days')
+            ->whereHas('days', fn (Builder $days) => $days
+                ->where('type', LeaveType::Sickness)
+                ->where('date', '>=', $this->windowStart()->toDateString())
+                ->where('date', '<', $this->asAt->toDateString()))
+            ->orderByDesc('starts_on')
             ->get();
     }
 
     /**
      * Get the hours of sickness counted against the entitlement.
      */
-    public function used(?DateTimeInterface $date = null): float
+    public function used(): float
     {
         return round(
-            $this->absencesBefore($date)->sum(fn (LeaveDay $day): float => $this->effectiveHours($day)),
+            $this->absencesBefore()->sum(fn (LeaveDay $day): float => $this->effectiveHours($day)),
             2,
         );
     }
@@ -227,35 +268,35 @@ class SicknessLedger
      * Sickness draws on full pay first, so what has been used comes off here
      * before it touches half pay.
      */
-    public function fullPayRemaining(?DateTimeInterface $date = null): float
+    public function fullPayRemaining(): float
     {
-        return round(max(0, $this->fullPayEntitlement($date) - $this->used($date)), 2);
+        return round(max(0, $this->fullPayEntitlement() - $this->used()), 2);
     }
 
     /**
      * Get the half pay still available, once full pay has been exhausted.
      */
-    public function halfPayRemaining(?DateTimeInterface $date = null): float
+    public function halfPayRemaining(): float
     {
-        $beyondFullPay = max(0, $this->used($date) - $this->fullPayEntitlement($date));
+        $beyondFullPay = max(0, $this->used() - $this->fullPayEntitlement());
 
-        return round(max(0, $this->halfPayEntitlement($date) - $beyondFullPay), 2);
+        return round(max(0, $this->halfPayEntitlement() - $beyondFullPay), 2);
     }
 
     /**
      * Determine whether the entitlement has run out entirely.
      */
-    public function isExhausted(?DateTimeInterface $date = null): bool
+    public function isExhausted(): bool
     {
-        return $this->fullPayRemaining($date) <= 0 && $this->halfPayRemaining($date) <= 0;
+        return $this->fullPayRemaining() <= 0 && $this->halfPayRemaining() <= 0;
     }
 
     /**
      * Express hours as months of pay at the pattern in effect.
      */
-    public function asMonths(float $hours, ?DateTimeInterface $date = null): ?float
+    public function asMonths(float $hours): ?float
     {
-        $month = $this->monthHours($date);
+        $month = $this->monthHours();
 
         return $month > 0 ? round($hours / $month, 2) : null;
     }

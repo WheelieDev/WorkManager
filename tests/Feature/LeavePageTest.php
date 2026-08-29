@@ -581,7 +581,9 @@ it('keeps each kind of leave to its own tab', function () {
 })->note('Stacking all three was what made the page messy.');
 
 it('shows only the bookings belonging to the tab', function () {
-    foreach ([[LeaveType::Annual, '2026-09-07'], [LeaveType::Hospital, '2026-09-08'], [LeaveType::Sickness, '2026-09-09']] as [$type, $date]) {
+    // The sickness sits before today, since the rolling window counts the
+    // twelve months preceding the day it is assessed on.
+    foreach ([[LeaveType::Annual, '2026-09-07'], [LeaveType::Hospital, '2026-09-08'], [LeaveType::Sickness, '2026-09-02']] as [$type, $date]) {
         Livewire::test('pages::leave')
             ->call('bookLeave', $date)
             ->set('type', $type->value)
@@ -592,17 +594,17 @@ it('shows only the bookings belonging to the tab', function () {
     Livewire::test('pages::leave')
         ->assertSee('Mon 7 Sep 2026')
         ->assertDontSee('Tue 8 Sep 2026')
-        ->assertDontSee('Wed 9 Sep 2026');
+        ->assertDontSee('Wed 2 Sep 2026');
 
     Livewire::test('pages::leave')
         ->set('tab', 'other')
         ->assertSee('Tue 8 Sep 2026')
         ->assertDontSee('Mon 7 Sep 2026')
-        ->assertDontSee('Wed 9 Sep 2026');
+        ->assertDontSee('Wed 2 Sep 2026');
 
     Livewire::test('pages::leave')
         ->set('tab', 'sickness')
-        ->assertSee('Wed 9 Sep 2026')
+        ->assertSee('Wed 2 Sep 2026')
         ->assertDontSee('Mon 7 Sep 2026')
         ->assertDontSee('Tue 8 Sep 2026');
 });
