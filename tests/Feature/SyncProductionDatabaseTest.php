@@ -1,5 +1,6 @@
 <?php
 
+use App\Console\Commands\SyncProductionDatabase;
 use Illuminate\Support\Facades\File;
 
 beforeEach(function () {
@@ -80,3 +81,33 @@ it('rejects a production url with no database on it', function () {
 it('leaves the dumps out of the repository', function () {
     expect(File::get(base_path('database/.gitignore')))->toContain('/dumps');
 })->note('A dump is a copy of live hours, and belongs on one machine only.');
+
+it('points the client at the plugins that ship beside it', function () {
+    // A client installed anywhere but the directory it was built for cannot
+    // find its own authentication plugins, so the sync has to say where they
+    // are. Stand up an installation shaped like a real one to look for.
+    $installation = storage_path('framework/testing/mysql-installation');
+
+    File::ensureDirectoryExists("{$installation}/bin");
+    File::ensureDirectoryExists("{$installation}/lib/plugin");
+    File::put("{$installation}/bin/mysqldump-fake", '');
+    chmod("{$installation}/bin/mysqldump-fake", 0755);
+
+    putenv('PATH='.$installation.'/bin:'.getenv('PATH'));
+
+    expect(pluginArgumentsFor('mysqldump-fake'))
+        ->toBe(["--plugin-dir={$installation}/lib/plugin"]);
+
+    File::deleteDirectory($installation);
+});
+
+it('leaves the plugin directory unsaid when there is none to name', function () {
+    expect(pluginArgumentsFor('a-client-that-is-not-installed'))->toBe([]);
+});
+
+function pluginArgumentsFor(string $binary): array
+{
+    $command = new SyncProductionDatabase;
+
+    return (fn () => $this->pluginArguments($binary))->call($command);
+}

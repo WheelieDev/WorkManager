@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
+use Symfony\Component\Process\ExecutableFinder;
 use Symfony\Component\Process\Process;
 
 class SyncProductionDatabase extends Command
@@ -193,6 +194,7 @@ class SyncProductionDatabase extends Command
 
         $arguments = [
             'mysqldump',
+            ...$this->pluginArguments('mysqldump'),
             '--single-transaction',
             '--no-tablespaces',
             '--set-gtid-purged=OFF',
@@ -244,6 +246,7 @@ class SyncProductionDatabase extends Command
 
         $arguments = [
             'mysql',
+            ...$this->pluginArguments('mysql'),
             '-h', (string) $connection['host'],
             '-P', (string) ($connection['port'] ?? '3306'),
             '-u', (string) $connection['username'],
@@ -253,6 +256,29 @@ class SyncProductionDatabase extends Command
         $command = $this->shellCommand($arguments).' < '.escapeshellarg($this->dumpFile);
 
         return $this->runProcess($command, 'Importing the dump', $connection['password'] ?? null);
+    }
+
+    /**
+     * Point a client at the authentication plugins that ship beside it.
+     *
+     * The MySQL clients are built to look for their plugins in the directory
+     * the official tarball unpacks to, so an installation anywhere else, as
+     * Herd's is, cannot load one. A server asking for mysql_native_password
+     * then fails the connection outright.
+     *
+     * @return list<string>
+     */
+    protected function pluginArguments(string $binary): array
+    {
+        $path = (new ExecutableFinder)->find($binary);
+
+        if ($path === null) {
+            return [];
+        }
+
+        $directory = dirname((string) realpath($path), 2).'/lib/plugin';
+
+        return is_dir($directory) ? ['--plugin-dir='.$directory] : [];
     }
 
     /**
