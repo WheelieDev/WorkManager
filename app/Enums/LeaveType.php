@@ -22,6 +22,8 @@ enum LeaveType: string
 
     case Volunteering = 'volunteering';
 
+    case Sickness = 'sickness';
+
     case Unpaid = 'unpaid';
 
     /**
@@ -36,6 +38,7 @@ enum LeaveType: string
             self::Compassionate => 'Compassionate leave',
             self::PhasedReturn => 'Phased return',
             self::Volunteering => 'Volunteering leave',
+            self::Sickness => 'Sickness',
             self::Unpaid => 'Unpaid or other',
         };
     }
@@ -49,6 +52,18 @@ enum LeaveType: string
     public function drawsOnAnnualLeave(): bool
     {
         return $this === self::Annual;
+    }
+
+    /**
+     * Determine whether this type is measured by the sickness allowance.
+     *
+     * Sickness is counted in months of pay against length of service over a
+     * rolling year, not in days against a leave year, so it keeps its own
+     * accounting rather than borrowing the day-based allowance below.
+     */
+    public function usesSicknessAllowance(): bool
+    {
+        return $this === self::Sickness;
     }
 
     /**
@@ -99,7 +114,7 @@ enum LeaveType: string
     {
         return array_values(array_filter(
             self::cases(),
-            fn (self $type): bool => ! $type->drawsOnAnnualLeave(),
+            fn (self $type): bool => ! $type->drawsOnAnnualLeave() && ! $type->usesSicknessAllowance(),
         ));
     }
 }

@@ -139,6 +139,53 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Length of Service
+    |--------------------------------------------------------------------------
+    |
+    | The day continuous service began. Sickness pay is banded by how long that
+    | service has run, so without it no sickness entitlement can be worked out
+    | and the page says so rather than guessing.
+    |
+    */
+
+    'service_started' => env('SERVICE_STARTED'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Sickness Allowance
+    |--------------------------------------------------------------------------
+    |
+    | Occupational sick pay, in months of pay, banded by completed months of
+    | service. The first band that the service length has not yet passed is the
+    | one that applies, so the bands are read from the longest down.
+    |
+    | The default bands are the policy as written: one month's full pay in the
+    | first year, with two months' half pay only after four months' service,
+    | rising to six and six after five years.
+    |
+    | Entitlement is reduced by the sickness taken in the twelve months
+    | immediately before the first day of the absence, which makes this a
+    | rolling window rather than anything to do with the leave year.
+    |
+    */
+
+    'sickness' => [
+
+        'bands' => [
+            ['after_months' => 0, 'full_pay_months' => 1, 'half_pay_months' => 0],
+            ['after_months' => 4, 'full_pay_months' => 1, 'half_pay_months' => 2],
+            ['after_months' => 12, 'full_pay_months' => 2, 'half_pay_months' => 2],
+            ['after_months' => 24, 'full_pay_months' => 4, 'half_pay_months' => 4],
+            ['after_months' => 36, 'full_pay_months' => 5, 'half_pay_months' => 5],
+            ['after_months' => 60, 'full_pay_months' => 6, 'half_pay_months' => 6],
+        ],
+
+        'lookback_months' => 12,
+
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Carryover
     |--------------------------------------------------------------------------
     |

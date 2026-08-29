@@ -464,3 +464,37 @@ it('rejects a type that does not exist', function () {
         ->call('saveLeave')
         ->assertHasErrors('type');
 });
+
+it('says what sick pay the length of service earns', function () {
+    config(['leave.service_started' => '2020-01-01']);
+
+    Livewire::test('pages::leave')
+        ->assertSee('Sickness allowance')
+        ->assertSee('Full pay')
+        ->assertSee('Half pay')
+        ->assertSee('6 months full pay and 6 months half pay');
+});
+
+it('asks for a service start before guessing at sick pay', function () {
+    config(['leave.service_started' => null]);
+
+    Livewire::test('pages::leave')
+        ->assertSee('Sickness allowance')
+        ->assertSee('service_started')
+        ->assertDontSee('Full pay');
+})->note('A wrong sick pay figure is worse than none while someone is off sick.');
+
+it('books sickness against the sickness allowance', function () {
+    config(['leave.service_started' => '2020-01-01']);
+
+    Livewire::test('pages::leave')
+        ->call('bookLeave', '2026-09-10')
+        ->set('type', LeaveType::Sickness->value)
+        ->call('saveLeave')
+        ->assertHasNoErrors();
+
+    expect(LeaveDay::query()->sole()->type)->toBe(LeaveType::Sickness);
+
+    // Sickness has its own accounting, so it is not listed with the rest.
+    Livewire::test('pages::leave')->assertDontSee('Sickness</dt>');
+});

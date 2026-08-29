@@ -7,6 +7,7 @@ use App\Models\LeaveRequest;
 use App\Support\FlexiCalculator;
 use App\Support\LeaveLedger;
 use App\Support\LeaveYear;
+use App\Support\SicknessLedger;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
@@ -260,6 +261,7 @@ new class extends Component {
             'ledger' => $ledger,
             'requests' => $ledger->requests(),
             'otherLeave' => $ledger->otherLeave(),
+            'sickness' => new SicknessLedger,
         ];
     }
 }; ?>
@@ -424,6 +426,59 @@ new class extends Component {
             </dl>
         </section>
     @endif
+
+    {{-- Occupational sick pay. Banded by length of service and reduced by the
+         sickness taken in the rolling year before, so it is shown as at today
+         rather than for the leave year. --}}
+    <section class="mt-8">
+        <h2 class="text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">
+            Sickness allowance
+        </h2>
+
+        @if (! $sickness->isConfigured())
+            <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
+                Set <span class="font-mono text-xs">service_started</span> in your leave config to see what sick pay
+                your length of service earns. Until then there is nothing to work it out from.
+            </p>
+        @else
+            <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                @foreach ([['Full pay', $sickness->fullPayRemaining(), $sickness->fullPayEntitlement()], ['Half pay', $sickness->halfPayRemaining(), $sickness->halfPayEntitlement()]] as [$label, $left, $total])
+                    <div class="rounded-xl border border-zinc-200 px-4 py-3 dark:border-zinc-700">
+                        <div class="text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">
+                            {{ $label }}
+                        </div>
+
+                        <div class="mt-1 flex items-baseline gap-2">
+                            <span class="tabular text-2xl font-medium leading-none {{ $left <= 0 ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-800 dark:text-white' }}">
+                                {{ $hours($left) }}
+                            </span>
+                            <span class="text-sm text-zinc-500 dark:text-zinc-400">
+                                hours left of {{ $hours($total) }}
+                            </span>
+                        </div>
+
+                        @if ($sickness->asMonths($left) !== null)
+                            <div class="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+                                about {{ $sickness->asMonths($left) }} {{ Str::plural('month', $sickness->asMonths($left)) }} of pay
+                            </div>
+                        @endif
+                    </div>
+                @endforeach
+            </div>
+
+            <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
+                {{ $sickness->yearsOfService() }} {{ Str::plural('year', $sickness->yearsOfService()) }} of service
+                earns {{ $sickness->band()->label() }}, worth
+                <span class="tabular">{{ $hours($sickness->monthHours()) }}</span>h a month at your pattern.
+                @if ($sickness->used() > 0)
+                    <span class="tabular">{{ $hours($sickness->used()) }}</span>h of sickness since
+                    {{ $sickness->windowStart()->format('j M Y') }} has already come off it.
+                @else
+                    No sickness has been recorded since {{ $sickness->windowStart()->format('j M Y') }}.
+                @endif
+            </p>
+        @endif
+    </section>
 
     {{-- Booked leave, as it was asked for. --}}
     <section class="mt-8">
