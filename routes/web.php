@@ -29,4 +29,8 @@ Route::middleware('auth')->group(function () {
     Route::livewire('/patterns', 'pages::patterns.index')->name('patterns.index');
     Route::livewire('/patterns/create', 'pages::patterns.form')->name('patterns.create');
     Route::livewire('/patterns/{pattern}/edit', 'pages::patterns.form')->name('patterns.edit');
+
+    Route::livewire('/areas', 'pages::areas.index')->name('areas.index');
+    Route::livewire('/areas/create', 'pages::areas.form')->name('areas.create');
+    Route::livewire('/areas/{area}/edit', 'pages::areas.form')->name('areas.edit');
 });

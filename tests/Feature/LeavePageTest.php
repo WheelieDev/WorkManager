@@ -569,7 +569,7 @@ it('summarises every pot, with the open one carrying its working out', function 
         // the pots below it rather than at the foot of the page.
         ->assertSeeInOrder(['Annual leave', 'Bookable leave', 'Time off in lieu', 'Other leave', 'Sickness'])
         ->assertSee('hours taken across 2 types')
-        ->assertSee('hours of full pay left of');
+        ->assertSee('hours of sickness taken');
 })->note('Every summary is always on view; only the open pot shows its working out.');
 
 it('opens a pot from its summary and closes it again', function () {
@@ -599,7 +599,7 @@ it('does not guess at sick pay in the overview', function () {
 
     Livewire::test('pages::leave')
         ->assertSee('No length of service set')
-        ->assertDontSee('full pay left');
+        ->assertDontSee('hours of sickness taken');
 });
 
 /*
@@ -680,3 +680,62 @@ it('names the type column only where types are mixed', function () {
     Livewire::test('pages::leave')->set('tab', 'other')->assertSeeHtml($column);
     Livewire::test('pages::leave')->set('tab', 'annual')->assertDontSeeHtml($column);
 })->note('A tab showing one type does not need a column repeating it.');
+
+it('gives every pot a colour of its own', function () {
+    $component = Livewire::test('pages::leave');
+
+    // Four pots, four hues: a pot is meant to be recognised before it is read.
+    foreach (['annual', 'lieu', 'other', 'sickness'] as $pot) {
+        $component->assertSeeHtml("border-s-pot-{$pot} ");
+    }
+});
+
+it('fills the open pot with its own colour rather than a shared grey', function () {
+    Livewire::test('pages::leave')
+        ->call('togglePot', 'sickness')
+        ->assertSeeHtml('bg-pot-sickness/[0.06]')
+        ->assertDontSeeHtml('hover:bg-pot-sickness/[0.06]');
+});
+
+it('leads the sickness pot with what has been taken, not what is left to take', function () {
+    config(['leave.service_started' => '2020-01-01']);
+    LeaveDay::factory()->create(['date' => '2026-07-06', 'type' => LeaveType::Sickness, 'hours' => 4]);
+
+    Livewire::test('pages::leave')
+        ->assertSee('4.00')
+        ->assertSee('hours of sickness taken')
+        ->assertSee('still covered at full pay');
+})->note('A remaining figure reads as a budget however it is worded.');
+
+it('says when full pay has run out and half pay has taken over', function () {
+    config(['leave.service_started' => '2020-01-01']);
+
+    // The pattern works Monday to Thursday, four hours a day, and skips
+    // August, so these five July days are twenty hours of sickness.
+    foreach (['2026-07-06', '2026-07-07', '2026-07-08', '2026-07-09', '2026-07-13'] as $date) {
+        LeaveDay::factory()->create(['date' => $date, 'type' => LeaveType::Sickness, 'hours' => 4]);
+    }
+    config(['leave.sickness.bands' => [
+        ['after_months' => 0, 'full_pay_months' => 0.25, 'half_pay_months' => 1],
+    ]]);
+
+    Livewire::test('pages::leave')
+        ->assertSee('20.00')
+        ->assertSee('now at half pay')
+        ->assertDontSee('still covered at full pay');
+})->note('Which band you are in is the thing that matters once full pay goes.');
+
+it('says plainly when no paid cover is left at all', function () {
+    config(['leave.service_started' => '2020-01-01']);
+
+    foreach (['2026-07-06', '2026-07-07', '2026-07-08', '2026-07-09', '2026-07-13'] as $date) {
+        LeaveDay::factory()->create(['date' => $date, 'type' => LeaveType::Sickness, 'hours' => 4]);
+    }
+    config(['leave.sickness.bands' => [
+        ['after_months' => 0, 'full_pay_months' => 0.25, 'half_pay_months' => 0],
+    ]]);
+
+    Livewire::test('pages::leave')
+        ->assertSee('no paid cover left')
+        ->assertDontSee('now at half pay');
+})->note('Cover running out is a fact worth flagging, not an overdraft to score.');

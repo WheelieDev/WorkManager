@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="dark">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -49,6 +49,10 @@
 
                     <flux:navlist.item icon="calendar-days" :href="route('patterns.index')" :current="request()->routeIs('patterns.*')" wire:navigate>
                         Working patterns
+                    </flux:navlist.item>
+
+                    <flux:navlist.item icon="rectangle-stack" :href="route('areas.index')" :current="request()->routeIs('areas.*')" wire:navigate>
+                        Work areas
                     </flux:navlist.item>
 
                     <flux:navlist.item icon="cog-6-tooth" :href="route('settings')" :current="request()->routeIs('settings')" wire:navigate>

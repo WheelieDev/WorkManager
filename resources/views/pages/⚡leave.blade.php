@@ -469,10 +469,31 @@ new class extends Component {
     {{-- Where each pot stands, before you open one. The summary is always on
          view; the working out is only there when you ask for it. --}}
     @php
-        $potBox = fn (string $key): string => 'overflow-hidden rounded-xl border transition '.($tab === $key
-            ? 'border-zinc-300 bg-ledger dark:border-zinc-600 dark:bg-white/[0.03]'
-            : 'border-zinc-200 hover:border-zinc-300 dark:border-zinc-700 dark:hover:border-zinc-600');
-        $tileLabel = 'text-[0.7rem] font-medium uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500';
+        /*
+         * Each pot wears its own hue on a thick leading edge, a tinted ground
+         * and a medallion, so it is picked out as an object before a word of
+         * it is read. The edge is solid rather than a wash, because a wash is
+         * the first thing to vanish under reduced transparency and forced
+         * colours; nothing here rests on the tint alone.
+         */
+        $pots = [
+            'annual' => ['icon' => 'sun', 'edge' => 'border-s-pot-annual dark:border-s-pot-annual-bright', 'ink' => 'text-pot-annual dark:text-pot-annual-bright', 'wash' => 'bg-pot-annual/[0.06] dark:bg-pot-annual-bright/[0.08]', 'hover' => 'hover:bg-pot-annual/[0.06] dark:hover:bg-pot-annual-bright/[0.08]'],
+            'lieu' => ['icon' => 'arrow-path', 'edge' => 'border-s-pot-lieu dark:border-s-pot-lieu-bright', 'ink' => 'text-pot-lieu dark:text-pot-lieu-bright', 'wash' => 'bg-pot-lieu/[0.06] dark:bg-pot-lieu-bright/[0.08]', 'hover' => 'hover:bg-pot-lieu/[0.06] dark:hover:bg-pot-lieu-bright/[0.08]'],
+            'other' => ['icon' => 'squares-2x2', 'edge' => 'border-s-pot-other dark:border-s-pot-other-bright', 'ink' => 'text-pot-other dark:text-pot-other-bright', 'wash' => 'bg-pot-other/[0.06] dark:bg-pot-other-bright/[0.08]', 'hover' => 'hover:bg-pot-other/[0.06] dark:hover:bg-pot-other-bright/[0.08]'],
+            'sickness' => ['icon' => 'heart', 'edge' => 'border-s-pot-sickness dark:border-s-pot-sickness-bright', 'ink' => 'text-pot-sickness dark:text-pot-sickness-bright', 'wash' => 'bg-pot-sickness/[0.06] dark:bg-pot-sickness-bright/[0.08]', 'hover' => 'hover:bg-pot-sickness/[0.06] dark:hover:bg-pot-sickness-bright/[0.08]'],
+        ];
+
+        $potBox = fn (string $key): string => 'overflow-hidden rounded-xl border border-s-4 transition '.$pots[$key]['edge'].' '.($tab === $key
+            ? 'border-zinc-300 shadow-sm dark:border-zinc-600 '.$pots[$key]['wash']
+            : 'border-zinc-200 hover:border-zinc-300 '.$pots[$key]['hover'].' dark:border-zinc-700 dark:hover:border-zinc-600');
+
+        /* The medallion repeats the hue as an area rather than a line, which
+           is what carries at a glance down a column of four. */
+        $potMedallion = fn (string $key): string => 'flex size-9 shrink-0 items-center justify-center rounded-lg '
+            .$pots[$key]['wash'].' '.$pots[$key]['ink'];
+
+        $tileLabel = 'text-[0.7rem] font-medium uppercase tracking-[0.18em]';
+        $potLabel = fn (string $key): string => $tileLabel.' '.$pots[$key]['ink'];
         $tileFigure = 'tabular text-2xl font-medium leading-none';
         $tileNote = 'mt-1 text-xs text-zinc-400 dark:text-zinc-500';
     @endphp
@@ -487,8 +508,12 @@ new class extends Component {
                 wire:click="togglePot('annual')"
                 aria-expanded="{{ $tab === 'annual' ? 'true' : 'false' }}"
             >
+                <span class="{{ $potMedallion('annual') }}" aria-hidden="true">
+                    <flux:icon.sun variant="micro" />
+                </span>
+
                 <span class="min-w-0 flex-1">
-                    <div class="{{ $tileLabel }}">Annual leave</div>
+                    <div class="{{ $potLabel('annual') }}">Annual leave</div>
 
                     <div class="mt-1 flex items-baseline gap-2">
                         <span class="{{ $tileFigure }} {{ $ledger->isOverdrawn() ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-800 dark:text-white' }}">
@@ -636,8 +661,12 @@ new class extends Component {
                 wire:click="togglePot('lieu')"
                 aria-expanded="{{ $tab === 'lieu' ? 'true' : 'false' }}"
             >
+                <span class="{{ $potMedallion('lieu') }}" aria-hidden="true">
+                    <flux:icon.arrow-path variant="micro" />
+                </span>
+
                 <span class="min-w-0 flex-1">
-                    <div class="{{ $tileLabel }}">Time off in lieu</div>
+                    <div class="{{ $potLabel('lieu') }}">Time off in lieu</div>
 
                     <div class="mt-1 flex items-baseline gap-2">
                         <span class="{{ $tileFigure }} text-zinc-800 dark:text-white">{{ $hours($lieu->balance()) }}</span>
@@ -732,8 +761,12 @@ new class extends Component {
                 wire:click="togglePot('other')"
                 aria-expanded="{{ $tab === 'other' ? 'true' : 'false' }}"
             >
+                <span class="{{ $potMedallion('other') }}" aria-hidden="true">
+                    <flux:icon.squares-2x2 variant="micro" />
+                </span>
+
                 <span class="min-w-0 flex-1">
-                    <div class="{{ $tileLabel }}">Other leave</div>
+                    <div class="{{ $potLabel('other') }}">Other leave</div>
 
                     @if ($otherLeave->isEmpty())
                         <div class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Nothing booked this year</div>
@@ -808,28 +841,69 @@ new class extends Component {
                 wire:click="togglePot('sickness')"
                 aria-expanded="{{ $tab === 'sickness' ? 'true' : 'false' }}"
             >
+                <span class="{{ $potMedallion('sickness') }}" aria-hidden="true">
+                    <flux:icon.heart variant="micro" />
+                </span>
+
                 <span class="min-w-0 flex-1">
-                    <div class="{{ $tileLabel }}">Sickness</div>
+                    <div class="{{ $potLabel('sickness') }}">Sickness</div>
 
                     @unless ($sickness->isConfigured())
                         <div class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">No length of service set</div>
                         <div class="{{ $tileNote }}">There is nothing to work sick pay out from</div>
                     @else
+                        {{-- What has been taken, not what is left to take. A
+                             remaining figure reads as a budget however it is
+                             worded, and sick pay is not there to be spent: the
+                             honest headline is the record of what illness has
+                             actually needed. --}}
                         <div class="mt-1 flex items-baseline gap-2">
-                            <span class="{{ $tileFigure }} {{ $sickness->fullPayRemaining() <= 0 ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-800 dark:text-white' }}">
-                                {{ $hours($sickness->fullPayRemaining()) }}
+                            <span class="{{ $tileFigure }} text-pot-sickness dark:text-pot-sickness-bright">
+                                {{ $hours($sickness->used()) }}
                             </span>
                             <span class="text-sm text-zinc-500 dark:text-zinc-400">
-                                hours of full pay left of {{ $hours($sickness->fullPayEntitlement()) }}
+                                hours of sickness taken
                             </span>
                         </div>
 
                         {{-- Sick pay runs over the twelve months before an absence, so it
                              stays as at today however far the leave year is wound back. --}}
                         <div class="{{ $tileNote }}">
-                            then <span class="tabular">{{ $hours($sickness->halfPayRemaining()) }}</span>h at half pay
+                            @if ($sickness->fullPayRemaining() > 0)
+                                still covered at full pay
+                            @elseif ($sickness->halfPayRemaining() > 0)
+                                <span class="font-medium text-deficit dark:text-deficit-bright">now at half pay</span>
+                            @else
+                                <span class="font-medium text-deficit dark:text-deficit-bright">no paid cover left</span>
+                            @endif
                             &middot; rolling year to {{ $sickness->asAt->format('j M Y') }}
                         </div>
+
+                        {{-- Where the sickness taken falls across the two bands
+                             of cover, so how far in you are is seen rather than
+                             worked out from three figures. Each band is a ground
+                             of its own; the fill is what has been used. --}}
+                        @php
+                            $coverTotal = $sickness->fullPayEntitlement() + $sickness->halfPayEntitlement();
+                            $fullShare = $coverTotal > 0 ? $sickness->fullPayEntitlement() / $coverTotal * 100 : 0;
+                            $usedShare = $coverTotal > 0 ? min(100, $sickness->used() / $coverTotal * 100) : 0;
+                        @endphp
+
+                        @if ($coverTotal > 0)
+                            <div class="relative mt-3 h-2.5 max-w-md overflow-hidden rounded-full" aria-hidden="true">
+                                <div class="absolute inset-y-0 left-0 bg-pot-sickness/20 dark:bg-pot-sickness-bright/25" style="width: {{ $fullShare }}%"></div>
+                                <div class="absolute inset-y-0 right-0 bg-pot-sickness/10 dark:bg-pot-sickness-bright/12" style="width: {{ 100 - $fullShare }}%"></div>
+
+                                <div class="absolute inset-y-0 left-0 rounded-full bg-pot-sickness dark:bg-pot-sickness-bright" style="width: {{ $usedShare }}%"></div>
+
+                                <div class="absolute inset-y-0 w-px bg-white dark:bg-zinc-900" style="left: {{ $fullShare }}%"></div>
+                            </div>
+
+                            <div class="{{ $tileNote }} flex max-w-md justify-between">
+                                <span>full pay to <span class="tabular">{{ $hours($sickness->fullPayEntitlement()) }}</span>h</span>
+                                <span>half pay to <span class="tabular">{{ $hours($coverTotal) }}</span>h</span>
+                            </div>
+                        @endif
                     @endunless
                 </span>
 
@@ -866,17 +940,20 @@ new class extends Component {
                                         </div>
 
                                         <div class="mt-1 flex items-baseline gap-2">
-                                            <span class="tabular text-2xl font-medium leading-none {{ $left <= 0 ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-800 dark:text-white' }}">
-                                                {{ $hours($left) }}
+                                            <span class="tabular text-2xl font-medium leading-none {{ $left <= 0 ? 'text-deficit dark:text-deficit-bright' : 'text-pot-sickness dark:text-pot-sickness-bright' }}">
+                                                {{ $hours($total - $left) }}
                                             </span>
                                             <span class="text-sm text-zinc-500 dark:text-zinc-400">
-                                                hours left of {{ $hours($total) }}
+                                                of {{ $hours($total) }} hours used
                                             </span>
                                         </div>
 
+                                        {{-- The months line follows the figure above it:
+                                             what is still there to fall back on, once
+                                             what has been used is the headline. --}}
                                         @if ($sickness->asMonths($left) !== null)
                                             <div class="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
-                                                about {{ $sickness->asMonths($left) }} {{ Str::plural('month', $sickness->asMonths($left)) }} of pay
+                                                about {{ $sickness->asMonths($left) }} {{ Str::plural('month', $sickness->asMonths($left)) }} of pay still covered
                                             </div>
                                         @endif
                                     </div>

@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 use RuntimeException;
 
@@ -18,14 +19,27 @@ use RuntimeException;
  * @property CarbonImmutable $started_at
  * @property CarbonImmutable|null $ended_at
  * @property WorkKind $kind
+ * @property int|null $work_area_id
+ * @property string|null $note
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
+ * @property-read WorkArea|null $workArea
  */
-#[Fillable(['started_at', 'ended_at', 'kind'])]
+#[Fillable(['started_at', 'ended_at', 'kind', 'work_area_id', 'note'])]
 class WorkSession extends Model
 {
     /** @use HasFactory<WorkSessionFactory> */
     use HasFactory;
+
+    /**
+     * The most a note may hold, in characters.
+     *
+     * Roomy rather than tight: a note on a long session is added to as the day
+     * goes rather than written once at the end, and formatting it in Markdown
+     * spends characters on syntax as well as words. The column behind it is
+     * wider still, so this is the only limit that has to be thought about.
+     */
+    public const NoteLimit = 20000;
 
     /**
      * Get the attributes that should be cast.
@@ -39,6 +53,26 @@ class WorkSession extends Model
             'ended_at' => 'datetime',
             'kind' => WorkKind::class,
         ];
+    }
+
+    /**
+     * Get the area this session was booked to, if any.
+     *
+     * @return BelongsTo<WorkArea, $this>
+     */
+    public function workArea(): BelongsTo
+    {
+        return $this->belongsTo(WorkArea::class);
+    }
+
+    /**
+     * Scope a query to sessions booked to one area.
+     *
+     * @param  Builder<WorkSession>  $query
+     */
+    public function scopeOfArea(Builder $query, WorkArea $area): void
+    {
+        $query->where('work_area_id', $area->id);
     }
 
     /**
@@ -112,7 +146,7 @@ class WorkSession extends Model
      *
      * @throws RuntimeException
      */
-    public static function start(?DateTimeInterface $at = null, WorkKind $kind = WorkKind::Contracted): self
+    public static function start(?DateTimeInterface $at = null, WorkKind $kind = WorkKind::Contracted, ?int $workAreaId = null): self
     {
         if (self::query()->running()->exists()) {
             throw new RuntimeException('A work session is already running.');
@@ -121,7 +155,37 @@ class WorkSession extends Model
         return self::query()->create([
             'started_at' => $at ? Carbon::parse($at) : now(),
             'kind' => $kind,
+            'work_area_id' => $workAreaId,
         ]);
+    }
+
+    /**
+     * Add a line to this session's note, keeping whatever is already there.
+     *
+     * Notes are written while the work is fresh, so each addition goes on its
+     * own line rather than replacing the thought before it. Anything that
+     * would overflow the limit is refused outright: silently truncating a note
+     * would lose the very thing that was just written.
+     *
+     * @throws RuntimeException
+     */
+    public function appendNote(string $note): self
+    {
+        $note = trim($note);
+
+        if ($note === '') {
+            return $this;
+        }
+
+        $combined = $this->note === null ? $note : $this->note."\n".$note;
+
+        if (mb_strlen($combined) > self::NoteLimit) {
+            throw new RuntimeException('This note has no room left.');
+        }
+
+        $this->update(['note' => $combined]);
+
+        return $this;
     }
 
     /**

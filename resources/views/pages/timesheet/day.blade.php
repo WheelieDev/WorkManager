@@ -63,7 +63,7 @@
 
     <div class="mt-5 flex flex-col">
         @forelse ($day['sessions'] as $session)
-            <div class="group/entry flex items-center justify-between gap-3 border-b border-zinc-100 py-2 dark:border-zinc-800" wire:key="entry-{{ $session->id }}">
+            <div class="group/entry flex items-start justify-between gap-3 border-b border-zinc-100 py-2 dark:border-zinc-800" wire:key="entry-{{ $session->id }}">
                 @if ($session->isRunning())
                     <span class="tabular text-sm text-surplus dark:text-surplus-bright">
                         {{ $session->started_at->format('H:i') }} &ndash; running
@@ -71,13 +71,27 @@
                     </span>
                     <span class="text-xs text-zinc-400 dark:text-zinc-500">Stop the timer on the dashboard</span>
                 @else
-                    <button type="button"
-                            class="tabular text-sm text-zinc-700 hover:underline dark:text-zinc-200"
-                            wire:click="editSession({{ $session->id }})">
-                        {{ $session->started_at->format('H:i') }} &ndash; {{ $session->ended_at->format('H:i') }}
-                    </button>
+                    {{-- The note sits under the times rather than beside them, so a
+                         long one wraps into the row instead of squeezing the figures. --}}
+                    <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <div class="flex items-center gap-2">
+                            <button type="button"
+                                    class="tabular text-sm text-zinc-700 hover:underline dark:text-zinc-200"
+                                    wire:click="editSession({{ $session->id }})">
+                                {{ $session->started_at->format('H:i') }} &ndash; {{ $session->ended_at->format('H:i') }}
+                            </button>
 
-                    <div class="flex items-center gap-3">
+                            @if ($session->workArea)
+                                <span class="truncate text-xs text-zinc-500 dark:text-zinc-400">{{ $session->workArea->name }}</span>
+                            @endif
+                        </div>
+
+                        @if ($session->note)
+                            <p class="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">{{ $session->note }}</p>
+                        @endif
+                    </div>
+
+                    <div class="flex shrink-0 items-center gap-3 self-start">
                         @if ($session->isLieu())
                             <span class="text-[0.7rem] uppercase tracking-[0.12em] text-zinc-400 dark:text-zinc-500">In lieu</span>
                         @endif

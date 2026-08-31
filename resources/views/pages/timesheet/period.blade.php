@@ -29,15 +29,27 @@
                     <span class="tabular text-xs text-zinc-400 dark:text-zinc-500">{{ $w['start']->format('j M') }}</span>
                 </div>
 
-                <div class="relative h-6 flex-1">
+                {{-- The two halves are grounded in their own tint, so which
+                     way a week leans is legible before any bar is drawn and
+                     the chart carries colour even where the deltas are small. --}}
+                <div class="relative h-7 flex-1 overflow-hidden rounded-md">
+                    <div class="absolute inset-y-0 left-0 w-1/2 bg-deficit/[0.07] dark:bg-deficit-bright/[0.08]"></div>
+                    <div class="absolute inset-y-0 right-0 w-1/2 bg-surplus/[0.07] dark:bg-surplus-bright/[0.08]"></div>
+
                     <div class="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-zinc-300 dark:bg-zinc-600"></div>
 
                     @if ($w['hasCountedDays'])
                         @if ($w['delta'] != 0)
-                            <div class="absolute top-1/2 h-2.5 -translate-y-1/2 rounded-[1px] @if ($w['delta'] > 0) left-1/2 bg-surplus dark:bg-surplus-bright @else right-1/2 bg-deficit dark:bg-deficit-bright @endif"
+                            {{-- The fill deepens away from the axis, so a long
+                                 week reads as heavier and not merely longer. --}}
+                            <div @class([
+                                    'absolute top-1/2 h-5 -translate-y-1/2',
+                                    'left-1/2 rounded-e-sm bg-gradient-to-r from-surplus/60 to-surplus dark:from-surplus-bright/60 dark:to-surplus-bright' => $w['delta'] > 0,
+                                    'right-1/2 rounded-s-sm bg-gradient-to-l from-deficit/60 to-deficit dark:from-deficit-bright/60 dark:to-deficit-bright' => $w['delta'] < 0,
+                                ])
                                  style="width: {{ max(0.5, $fraction * 50) }}%"></div>
                         @else
-                            <div class="absolute left-1/2 top-1/2 h-2.5 w-1 -translate-x-1/2 -translate-y-1/2 rounded-[1px] bg-zinc-300 dark:bg-zinc-600"></div>
+                            <div class="absolute left-1/2 top-1/2 h-5 w-1 -translate-x-1/2 -translate-y-1/2 rounded-sm bg-zinc-400 dark:bg-zinc-500"></div>
                         @endif
                     @endif
 

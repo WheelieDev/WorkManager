@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\WorkKind;
+use App\Models\WorkArea;
 use App\Models\WorkSession;
 use App\Support\FlexiCalculator;
 use App\Support\FlexiPeriod;
@@ -21,6 +22,21 @@ new class extends Component {
     public string $kind = WorkKind::Contracted->value;
 
     /**
+     * The area the next session will be booked to.
+     *
+     * Held across visits for the same reason as the kind: work comes in
+     * stretches, and whoever spent this morning on one thing is likely to
+     * spend this afternoon on it too.
+     */
+    #[Session]
+    public ?int $work_area_id = null;
+
+    /**
+     * The line about to be added to the running session's note.
+     */
+    public string $note = '';
+
+    /**
      * Start the timer, tracking it as whichever kind is chosen.
      */
     public function startTimer(): void
@@ -29,7 +45,43 @@ new class extends Component {
             return;
         }
 
-        WorkSession::start(kind: WorkKind::tryFrom($this->kind) ?? WorkKind::Contracted);
+        WorkSession::start(
+            kind: WorkKind::tryFrom($this->kind) ?? WorkKind::Contracted,
+            workAreaId: $this->activeAreaId(),
+        );
+    }
+
+    /**
+     * Add what you have just done to the running session's note.
+     *
+     * Kept to the running session, since a note written now is about the work
+     * happening now. Anything else is edited on the timesheet.
+     */
+    public function addNote(): void
+    {
+        $session = WorkSession::current();
+
+        if ($session === null) {
+            return;
+        }
+
+        $this->validate([
+            'note' => ['required', 'string', 'max:'.WorkSession::NoteLimit],
+        ], [
+            'note.required' => 'Write something to add.',
+        ]);
+
+        $remaining = WorkSession::NoteLimit - mb_strlen($session->note ?? '');
+
+        if (mb_strlen(trim($this->note)) > $remaining) {
+            $this->addError('note', 'This note has no room left. Trim it on the timesheet first.');
+
+            return;
+        }
+
+        $session->appendNote($this->note);
+
+        $this->reset('note');
     }
 
     /**
@@ -56,6 +108,21 @@ new class extends Component {
     }
 
     /**
+     * Get the chosen area, provided it is still one you can book to.
+     *
+     * The choice is remembered across visits, so it can outlive the area
+     * being archived or deleted.
+     */
+    protected function activeAreaId(): ?int
+    {
+        if ($this->work_area_id === null) {
+            return null;
+        }
+
+        return WorkArea::query()->active()->whereKey($this->work_area_id)->value('id');
+    }
+
+    /**
      * Build today's figures and the period summary.
      */
     public function with(): array
@@ -69,10 +136,11 @@ new class extends Component {
 
         return [
             'kinds' => WorkKind::cases(),
+            'areas' => WorkArea::query()->active()->orderBy('name')->get(),
             'ledger' => $ledger,
             'lieu' => new LieuLedger,
             'leaveToday' => $calculator->leaveHours(now()),
-            'running' => WorkSession::current(),
+            'running' => WorkSession::current()?->loadMissing('workArea'),
             'workedToday' => $calculator->workedHours(now()),
             'lieuToday' => $calculator->lieuHours(now()),
             'expectedToday' => $calculator->expectedHours(now()),
@@ -131,7 +199,48 @@ new class extends Component {
                         <flux:text variant="subtle" class="mt-1">
                             Started at {{ $running->started_at->format('H:i') }}
                             &middot; {{ $running->kind->label() }}
+                            @if ($running->workArea)
+                                &middot; {{ $running->workArea->name }}
+                            @endif
                         </flux:text>
+
+                        {{-- Notes are added as the session runs rather than
+                             recalled at the end, so the box sits with the timer
+                             instead of on the timesheet. --}}
+                        @if ($running->note)
+                            <div class="mt-4 flex flex-col gap-1 border-s-2 border-zinc-200 ps-3 dark:border-zinc-700">
+                                @foreach (preg_split('/\R/', $running->note) as $line)
+                                    <p class="text-sm text-zinc-500 dark:text-zinc-400">{{ $line }}</p>
+                                @endforeach
+                            </div>
+                        @endif
+
+                        {{-- A textarea rather than a single line, because a note
+                             is sometimes a paragraph. Enter therefore breaks the
+                             line as it should, and the shortcut submits. --}}
+                        <form wire:submit="addNote" class="mt-4 flex max-w-md flex-col gap-2">
+                            <flux:textarea
+                                wire:model="note"
+                                rows="2"
+                                size="sm"
+                                placeholder="What you just did"
+                                :label:sr="'Add to the note'"
+                                x-on:keydown.meta.enter.prevent="$wire.addNote()"
+                                x-on:keydown.ctrl.enter.prevent="$wire.addNote()"
+                            />
+
+                            <flux:error name="note" />
+
+                            <div class="flex items-center gap-3">
+                                <flux:button type="submit" size="sm" variant="subtle" icon="plus">
+                                    Add
+                                </flux:button>
+
+                                <flux:text variant="subtle" class="text-xs">
+                                    Or press <kbd class="font-sans">&#8984;</kbd> + <kbd class="font-sans">Enter</kbd>
+                                </flux:text>
+                            </div>
+                        </form>
 
                         <flux:button variant="danger" icon="stop" class="mt-4" wire:click="stopTimer">
                             Stop
@@ -153,6 +262,15 @@ new class extends Component {
                                     <flux:radio value="{{ $workKind->value }}" label="{{ $workKind->shortLabel() }}" />
                                 @endforeach
                             </flux:radio.group>
+
+                            @if ($areas->isNotEmpty())
+                                <flux:select wire:model.live="work_area_id" size="sm" class="max-w-44" placeholder="No area">
+                                    <flux:select.option value="">No area</flux:select.option>
+                                    @foreach ($areas as $area)
+                                        <flux:select.option value="{{ $area->id }}">{{ $area->name }}</flux:select.option>
+                                    @endforeach
+                                </flux:select>
+                            @endif
                         </div>
                     @endif
                 </div>
@@ -214,8 +332,8 @@ new class extends Component {
                 <div class="text-right">
                     <div @class([
                         'text-3xl font-semibold tabular-nums',
-                        'text-lime-600 dark:text-lime-400' => $balance > 0,
-                        'text-rose-600 dark:text-rose-400' => $balance < 0,
+                        'text-surplus dark:text-surplus-bright' => $balance > 0,
+                        'text-deficit dark:text-deficit-bright' => $balance < 0,
                     ])>
                         {{ $balance > 0 ? '+' : '' }}{{ number_format($balance, 2) }}h
                     </div>
@@ -223,10 +341,14 @@ new class extends Component {
                 </div>
             </div>
 
+            {{-- The bar takes the same tone as the figure above it, and turns
+                 to deficit once the limit is passed whichever way the balance
+                 leans: beyond it, hours stop carrying. --}}
             <flux:progress
-                class="mt-4"
+                class="mt-4 {{ $isOverLimit || $balance < 0
+                    ? '[--flux-progress-color:var(--color-deficit)] dark:[--flux-progress-color:var(--color-deficit-bright)]'
+                    : '[--flux-progress-color:var(--color-surplus)] dark:[--flux-progress-color:var(--color-surplus-bright)]' }}"
                 :value="$progress"
-                :color="$isOverLimit ? 'red' : ($balance < 0 ? 'rose' : 'lime')"
             />
 
             @if ($isOverLimit)

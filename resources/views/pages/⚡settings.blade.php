@@ -89,4 +89,22 @@ new class extends Component {
             @endif
         </div>
     </form>
+
+    {{-- Appearance is a preference of the browser rather than a detail of the
+         job, so it is kept out of the form above and takes effect as it is
+         chosen instead of waiting on a save. --}}
+    <section class="mt-5 rounded-xl border border-zinc-200 px-5 py-5 dark:border-zinc-700">
+        <flux:field>
+            <flux:label>Appearance</flux:label>
+            <flux:description>
+                Following the system means the app turns dark when the rest of your machine does.
+            </flux:description>
+
+            <flux:radio.group x-data variant="segmented" x-model="$flux.appearance" class="mt-3">
+                <flux:radio value="light" icon="sun" label="Light" />
+                <flux:radio value="dark" icon="moon" label="Dark" />
+                <flux:radio value="system" icon="computer-desktop" label="System" />
+            </flux:radio.group>
+        </flux:field>
+    </section>
 </div>

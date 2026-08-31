@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Enums\WorkKind;
+use App\Models\WorkArea;
 use App\Models\WorkSession;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Carbon;
@@ -46,6 +47,26 @@ class WorkSessionFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'kind' => WorkKind::Lieu,
+        ]);
+    }
+
+    /**
+     * Book the session to a work area.
+     */
+    public function forArea(WorkArea $area): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'work_area_id' => $area->id,
+        ]);
+    }
+
+    /**
+     * Leave a note on the session saying what was done.
+     */
+    public function withNote(string $note): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'note' => $note,
         ]);
     }
 

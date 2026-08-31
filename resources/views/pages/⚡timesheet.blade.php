@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\WorkKind;
+use App\Models\WorkArea;
 use App\Models\WorkSession;
 use App\Support\FlexiCalculator;
 use App\Support\FlexiPeriod;
@@ -40,6 +41,10 @@ new class extends Component {
     public string $end_time = '';
 
     public string $kind = WorkKind::Contracted->value;
+
+    public ?int $work_area_id = null;
+
+    public string $note = '';
 
     public bool $showingForm = false;
 
@@ -111,7 +116,7 @@ new class extends Component {
      */
     public function addSession(string $date): void
     {
-        $this->reset('editingId', 'start_time', 'end_time', 'kind');
+        $this->reset('editingId', 'start_time', 'end_time', 'kind', 'work_area_id', 'note');
         $this->resetValidation();
 
         $this->date = $date;
@@ -132,6 +137,8 @@ new class extends Component {
         $this->start_time = $session->started_at->format('H:i');
         $this->end_time = $session->ended_at?->format('H:i') ?? '';
         $this->kind = $session->kind->value;
+        $this->work_area_id = $session->work_area_id;
+        $this->note = $session->note ?? '';
         $this->showingForm = true;
     }
 
@@ -145,14 +152,20 @@ new class extends Component {
             'start_time' => ['required', 'date_format:H:i'],
             'end_time' => ['required', 'date_format:H:i', 'after:start_time'],
             'kind' => ['required', Rule::enum(WorkKind::class)],
+            'work_area_id' => ['nullable', 'integer', Rule::exists('work_areas', 'id')],
+            'note' => ['nullable', 'string', 'max:'.WorkSession::NoteLimit],
         ], [
             'end_time.after' => 'The end time must be after the start time.',
+            'work_area_id.exists' => 'That work area no longer exists.',
+            'note.max' => 'That note is too long to save.',
         ]);
 
         $attributes = [
             'started_at' => Carbon::parse("{$validated['date']} {$validated['start_time']}"),
             'ended_at' => Carbon::parse("{$validated['date']} {$validated['end_time']}"),
             'kind' => WorkKind::from($validated['kind']),
+            'work_area_id' => $validated['work_area_id'] ?? null,
+            'note' => ($validated['note'] ?? '') === '' ? null : $validated['note'],
         ];
 
         if ($this->editingId !== null) {
@@ -183,6 +196,7 @@ new class extends Component {
         $calculator->warmRange($period->start, $period->end);
 
         $sessions = WorkSession::query()
+            ->with('workArea')
             ->whereBetween('started_at', [$period->start, $period->end])
             ->orderBy('started_at')
             ->get()
@@ -231,6 +245,7 @@ new class extends Component {
             'gaugePosition' => (max(-$limit, min($limit, $balance)) + $limit) / (2 * $limit) * 100,
             'daysLeft' => max(0, (int) now()->startOfDay()->diffInDays($period->end->copy()->startOfDay(), false)),
             'kinds' => WorkKind::cases(),
+            'areas' => WorkArea::query()->active()->orderBy('name')->get(),
             'trackingStart' => FlexiPeriod::trackingStart(),
             'showsTrackingStart' => $period->startsPartWayThrough(),
             'stepLabel' => match ($this->mode) {
@@ -411,6 +426,24 @@ new class extends Component {
                     @endforeach
                 </flux:radio.group>
                 <flux:error name="kind" />
+            </flux:field>
+
+            <flux:field>
+                <flux:label>Work area</flux:label>
+                <flux:select wire:model="work_area_id" placeholder="No area">
+                    <flux:select.option value="">No area</flux:select.option>
+                    @foreach ($areas as $area)
+                        <flux:select.option value="{{ $area->id }}">{{ $area->name }}</flux:select.option>
+                    @endforeach
+                </flux:select>
+                <flux:error name="work_area_id" />
+            </flux:field>
+
+            <flux:field>
+                <flux:label>Note</flux:label>
+                <flux:description>What you did, for your own memory later. Use references rather than names.</flux:description>
+                <flux:textarea wire:model="note" rows="4" />
+                <flux:error name="note" />
             </flux:field>
 
             <div class="flex gap-2">

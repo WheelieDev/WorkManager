@@ -19,6 +19,38 @@
 
     --color-ledger: #f4f5f3;
     --color-ledger-ink: #2b3a42;
+
+    /* The app's own colour, for anything the interface offers rather than
+       reports: buttons, focus rings, the current page in the sidebar. Kept
+       clear of surplus and deficit so pressing a button never reads as
+       good news. */
+    --color-accent: #2a5f8f;
+    --color-accent-content: #2a5f8f;
+    --color-accent-foreground: #ffffff;
+
+    /* One hue per pot, so a pot is recognised as an object before it is read.
+       The four are spread right around the wheel rather than picked by taste,
+       because red-green sight is common enough that neighbouring hues would
+       collapse into one for some readers. Each is a pair: the deep value
+       carries light backgrounds, the bright one carries dark. */
+    --color-pot-annual: #0e7c6b;
+    --color-pot-annual-bright: #5ec5ae;
+    --color-pot-sickness: #4f5bab;
+    --color-pot-sickness-bright: #9aa4e8;
+    --color-pot-other: #8a3d78;
+    --color-pot-other-bright: #d68fc4;
+    --color-pot-lieu: #8a6212;
+    --color-pot-lieu-bright: #ddb35b;
+}
+
+/* Flux sets its own accent for dark mode in the theme layer, so ours has to
+   be stated there too rather than left to win on order alone. */
+@layer theme {
+    .dark {
+        --color-accent: #8ec2ea;
+        --color-accent-content: #8ec2ea;
+        --color-accent-foreground: #18181b;
+    }
 }
 
 /* Every figure on the timesheet is read as a measurement, so they line up

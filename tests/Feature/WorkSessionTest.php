@@ -99,3 +99,36 @@ it('scopes sessions to the date they started on', function () {
 
     expect(WorkSession::query()->startedOn(now()->parse('2026-08-10'))->count())->toBe(1);
 });
+
+/*
+|--------------------------------------------------------------------------
+| Notes
+|--------------------------------------------------------------------------
+*/
+
+it('appends each note on its own line', function () {
+    $session = WorkSession::factory()->on('2026-08-27')->create();
+
+    $session->appendNote('First thing')->appendNote('Second thing');
+
+    expect($session->fresh()->note)->toBe("First thing\nSecond thing");
+});
+
+it('trims a note and ignores an empty one', function () {
+    $session = WorkSession::factory()->on('2026-08-27')->create();
+
+    $session->appendNote('  Padded  ')->appendNote('   ');
+
+    expect($session->fresh()->note)->toBe('Padded');
+});
+
+it('refuses a note that would pass the limit', function () {
+    $session = WorkSession::factory()->on('2026-08-27')->create([
+        'note' => str_repeat('a', WorkSession::NoteLimit),
+    ]);
+
+    expect(fn () => $session->appendNote('one more'))
+        ->toThrow(RuntimeException::class, 'This note has no room left.');
+
+    expect($session->fresh()->note)->toHaveLength(WorkSession::NoteLimit);
+});

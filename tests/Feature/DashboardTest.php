@@ -4,6 +4,7 @@ use App\Enums\Weekday;
 use App\Models\BankHoliday;
 use App\Models\LeaveDay;
 use App\Models\User;
+use App\Models\WorkArea;
 use App\Models\WorkPattern;
 use App\Models\WorkSession;
 use Livewire\Livewire;
@@ -36,6 +37,118 @@ it('starts the timer', function () {
         ->assertSee('Started at 10:00');
 
     expect(WorkSession::current())->not->toBeNull();
+});
+
+it('starts the timer against the chosen work area', function () {
+    $area = WorkArea::factory()->create(['name' => 'Licensing']);
+
+    Livewire::test('pages::dashboard')
+        ->set('work_area_id', $area->id)
+        ->call('startTimer')
+        ->assertSee('Licensing');
+
+    expect(WorkSession::current()->work_area_id)->toBe($area->id);
+});
+
+it('starts the timer with no area when none is chosen', function () {
+    Livewire::test('pages::dashboard')->call('startTimer');
+
+    expect(WorkSession::current()->work_area_id)->toBeNull();
+});
+
+it('forgets an area that has since been archived', function () {
+    $area = WorkArea::factory()->create();
+
+    $component = Livewire::test('pages::dashboard')->set('work_area_id', $area->id);
+
+    $area->update(['archived_at' => now()]);
+
+    $component->call('startTimer');
+
+    expect(WorkSession::current()->work_area_id)->toBeNull();
+})->note('The choice is remembered across visits, so it can outlive the area itself.');
+
+it('appends a note to the running session', function () {
+    $component = Livewire::test('pages::dashboard')
+        ->call('startTimer')
+        ->set('note', 'Cleared the renewals backlog')
+        ->call('addNote')
+        ->assertHasNoErrors()
+        ->assertSet('note', '');
+
+    expect(WorkSession::current()->note)->toBe('Cleared the renewals backlog');
+
+    $component
+        ->set('note', 'Started the September report')
+        ->call('addNote')
+        ->assertHasNoErrors();
+
+    expect(WorkSession::current()->note)
+        ->toBe("Cleared the renewals backlog\nStarted the September report");
+})->note('Each addition goes on its own line rather than replacing the one before it.');
+
+it('shows the notes added so far beside the timer', function () {
+    Livewire::test('pages::dashboard')
+        ->call('startTimer')
+        ->set('note', 'Cleared the renewals backlog')
+        ->call('addNote')
+        ->assertSee('Cleared the renewals backlog')
+        ->assertSee('What you just did');
+});
+
+it('keeps the line breaks in a note written over several lines', function () {
+    Livewire::test('pages::dashboard')
+        ->call('startTimer')
+        ->set('note', "Chased the renewals\nStill waiting on finance")
+        ->call('addNote')
+        ->assertHasNoErrors();
+
+    expect(WorkSession::current()->note)->toBe("Chased the renewals\nStill waiting on finance");
+})->note('The box is a textarea, so a note can be a paragraph rather than a line.');
+
+it('will not add an empty note', function () {
+    Livewire::test('pages::dashboard')
+        ->call('startTimer')
+        ->set('note', '   ')
+        ->call('addNote')
+        ->assertHasErrors('note');
+
+    expect(WorkSession::current()->note)->toBeNull();
+});
+
+it('does nothing when there is no timer to note against', function () {
+    Livewire::test('pages::dashboard')
+        ->set('note', 'Something worth remembering')
+        ->call('addNote')
+        ->assertHasNoErrors();
+
+    expect(WorkSession::query()->count())->toBe(0);
+});
+
+it('refuses a note that would overflow rather than truncating it', function () {
+    $component = Livewire::test('pages::dashboard')->call('startTimer');
+
+    WorkSession::current()->update(['note' => str_repeat('a', WorkSession::NoteLimit - 5)]);
+
+    $component
+        ->set('note', 'This will not fit')
+        ->call('addNote')
+        ->assertHasErrors('note');
+
+    expect(mb_strlen(WorkSession::current()->note))->toBe(WorkSession::NoteLimit - 5);
+})->note('Truncating would lose exactly the words just written.');
+
+it('carries a note added while running through to the timesheet', function () {
+    $component = Livewire::test('pages::dashboard')
+        ->call('startTimer')
+        ->set('note', 'Cleared the renewals backlog')
+        ->call('addNote');
+
+    $this->travelTo('2026-08-27 12:30');
+
+    $component->call('stopTimer');
+
+    expect(WorkSession::query()->sole()->note)->toBe('Cleared the renewals backlog');
 });
 
 it('does not start a second timer while one runs', function () {
@@ -160,4 +273,22 @@ it('flags a day taken as leave', function () {
     LeaveDay::factory()->on('2026-09-08', 4.0)->create();
 
     Livewire::test('pages::dashboard')->assertSee('On leave 4.00h');
+});
+
+it('shows a surplus balance in the surplus tone', function () {
+    // No pattern, so every hour worked is a surplus.
+    WorkPattern::query()->delete();
+    WorkSession::factory()->create(['started_at' => '2026-08-15 09:00', 'ended_at' => '2026-08-15 12:00']);
+
+    Livewire::test('pages::dashboard')
+        ->assertSee('+3.00h')
+        ->assertSeeHtml('text-surplus dark:text-surplus-bright')
+        ->assertDontSeeHtml('text-deficit dark:text-deficit-bright');
+});
+
+it('shows a deficit balance in the deficit tone', function () {
+    // Pattern expects 7.5h a day and nothing has been worked.
+    Livewire::test('pages::dashboard')
+        ->assertSeeHtml('text-deficit dark:text-deficit-bright')
+        ->assertDontSeeHtml('text-surplus dark:text-surplus-bright');
 });

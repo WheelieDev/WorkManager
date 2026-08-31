@@ -2,7 +2,9 @@
 
 use App\Enums\Weekday;
 use App\Models\BankHoliday;
+use App\Models\LeaveDay;
 use App\Models\User;
+use App\Models\WorkArea;
 use App\Models\WorkPattern;
 use App\Models\WorkSession;
 use Illuminate\Support\Facades\DB;
@@ -318,6 +320,96 @@ it('deletes an entry', function () {
     expect(WorkSession::query()->count())->toBe(0);
 });
 
+it('books an entry to a work area with a note', function () {
+    $area = WorkArea::factory()->create(['name' => 'Licensing']);
+
+    Livewire::test('pages::timesheet')
+        ->call('addSession', '2026-08-25')
+        ->set('start_time', '09:00')
+        ->set('end_time', '12:00')
+        ->set('work_area_id', $area->id)
+        ->set('note', 'Cleared the renewals backlog')
+        ->call('saveSession')
+        ->assertHasNoErrors();
+
+    $session = WorkSession::query()->sole();
+
+    expect($session->work_area_id)->toBe($area->id)
+        ->and($session->note)->toBe('Cleared the renewals backlog');
+});
+
+it('reads back the area and note when editing', function () {
+    $area = WorkArea::factory()->create();
+    $session = WorkSession::factory()
+        ->on('2026-08-25', '09:00', '12:00')
+        ->forArea($area)
+        ->withNote('Drafted the September report')
+        ->create();
+
+    Livewire::test('pages::timesheet')
+        ->call('editSession', $session)
+        ->assertSet('work_area_id', $area->id)
+        ->assertSet('note', 'Drafted the September report');
+});
+
+it('clears the area and note back off an entry', function () {
+    $area = WorkArea::factory()->create();
+    $session = WorkSession::factory()
+        ->on('2026-08-25', '09:00', '12:00')
+        ->forArea($area)
+        ->withNote('Something I would rather not keep')
+        ->create();
+
+    Livewire::test('pages::timesheet')
+        ->call('editSession', $session)
+        ->set('work_area_id', null)
+        ->set('note', '')
+        ->call('saveSession')
+        ->assertHasNoErrors();
+
+    $session->refresh();
+
+    expect($session->work_area_id)->toBeNull()
+        ->and($session->note)->toBeNull();
+})->note('An empty note is stored as null, not an empty string, so nothing renders for it.');
+
+it('shows the area and note in the day view', function () {
+    $area = WorkArea::factory()->create(['name' => 'Licensing']);
+    WorkSession::factory()
+        ->on('2026-08-27', '09:00', '12:00')
+        ->forArea($area)
+        ->withNote('Cleared the renewals backlog')
+        ->create();
+
+    Livewire::test('pages::timesheet')
+        ->set('mode', 'day')
+        ->set('focus', '2026-08-27')
+        ->assertSee('Licensing')
+        ->assertSee('Cleared the renewals backlog');
+});
+
+it('rejects a note longer than the field allows', function () {
+    Livewire::test('pages::timesheet')
+        ->call('addSession', '2026-08-25')
+        ->set('start_time', '09:00')
+        ->set('end_time', '12:00')
+        ->set('note', str_repeat('a', WorkSession::NoteLimit + 1))
+        ->call('saveSession')
+        ->assertHasErrors('note');
+
+    expect(WorkSession::query()->count())->toBe(0);
+});
+
+it('rejects an area that no longer exists', function () {
+    Livewire::test('pages::timesheet')
+        ->call('addSession', '2026-08-25')
+        ->set('start_time', '09:00')
+        ->set('end_time', '12:00')
+        ->set('work_area_id', 999)
+        ->call('saveSession')
+        ->assertHasErrors('work_area_id');
+});
+
 it('rejects an end time before the start time', function () {
     Livewire::test('pages::timesheet')
         ->call('addSession', '2026-08-25')
@@ -389,4 +481,45 @@ it('requires signing in', function () {
     auth()->logout();
 
     $this->get(route('timesheet'))->assertRedirect(route('login'));
+});
+
+/*
+|--------------------------------------------------------------------------
+| How a day reads at a glance
+|--------------------------------------------------------------------------
+*/
+
+it('grounds a bank holiday in its own colour', function () {
+    BankHoliday::create(['date' => '2026-08-25', 'title' => 'Summer bank holiday']);
+
+    Livewire::test('pages::timesheet')
+        ->call('showWeek', '2026-08-24')
+        ->assertSee('Summer bank holiday')
+        ->assertSeeHtml('bg-pot-other/[0.08]');
+});
+
+it('grounds a day of annual leave in the annual colour', function () {
+    LeaveDay::factory()->on('2026-08-25', 7.5)->create();
+
+    Livewire::test('pages::timesheet')
+        ->call('showWeek', '2026-08-24')
+        ->assertSeeHtml('bg-pot-annual/[0.08]');
+});
+
+it('grounds a day banked in lieu in the lieu colour', function () {
+    WorkSession::factory()->on('2026-08-25', '18:00', '20:00')->inLieu()->create();
+
+    Livewire::test('pages::timesheet')
+        ->call('showWeek', '2026-08-24')
+        ->assertSeeHtml('bg-pot-lieu/[0.08]');
+});
+
+it('lets a bank holiday outrank leave booked on the same day', function () {
+    BankHoliday::create(['date' => '2026-08-25', 'title' => 'Summer bank holiday']);
+    LeaveDay::factory()->on('2026-08-25', 7.5)->create();
+
+    Livewire::test('pages::timesheet')
+        ->call('showWeek', '2026-08-24')
+        ->assertSeeHtml('bg-pot-other/[0.08]')
+        ->assertDontSeeHtml('bg-pot-annual/[0.08]');
 });
