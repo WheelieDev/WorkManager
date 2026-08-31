@@ -17,6 +17,13 @@ Route::post('/logout', function (Request $request) {
     return redirect()->route('login');
 })->middleware('auth')->name('logout');
 
+// The API documentation describes shapes, not data, so it stays open: a client
+// generator on the command line has no PIN to offer.
+Route::view('/docs', 'docs')->name('docs');
+Route::get('/docs/openapi.yaml', fn () => response()->file(base_path('openapi.yaml'), [
+    'Content-Type' => 'application/yaml',
+]))->name('docs.spec');
+
 Route::middleware('auth')->group(function () {
     Route::livewire('/', 'pages::dashboard')->name('dashboard');
 

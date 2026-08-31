@@ -1,0 +1,624 @@
+openapi: 3.1.0
+
+info:
+  title: WorkManager API
+  version: 1.0.0
+  description: |
+    The timer as a menu bar app sees it: what is running, starting and stopping
+    it, adding to the running session's note, and the areas a session can be
+    booked to. It mirrors the dashboard, so the two never disagree.
+
+    Authenticate with a personal access token, either made on the Settings page
+    or exchanged for the PIN at `POST /auth/tokens`, sent as a bearer token.
+    Every request should also send `Accept: application/json`.
+
+servers:
+  - url: https://workmgr.wheelie-apps.uk/api
+    description: Production
+  - url: https://work-manager.test/api
+    description: Local, served by Laravel Herd
+
+security:
+  - bearerToken: []
+
+tags:
+  - name: Authentication
+    description: Exchanging the PIN for a token, and giving one back.
+  - name: Timer
+    description: The single running session and the clock that drives it.
+  - name: Hours
+    description: Today against the pattern, and where the flexi balance stands.
+  - name: Work areas
+    description: Labels saying where the hours went.
+
+paths:
+  /auth/tokens:
+    post:
+      tags: [Authentication]
+      operationId: createToken
+      summary: Exchange the PIN for a token
+      description: |
+        Signs a device in the way the login page does. Wrong guesses count
+        against the same bucket as the login page, five per address, so the
+        API is not a second set of attempts at the same PIN.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTokenRequest'
+      responses:
+        '201':
+          description: The token, in the clear. Only its hash is kept, so store it now.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Token'
+        '422':
+          description: The PIN is wrong, too many have been tried, or the body is incomplete.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrors'
+              examples:
+                wrongPin:
+                  summary: The PIN is wrong
+                  value:
+                    message: That PIN is incorrect.
+                    errors:
+                      pin: [That PIN is incorrect.]
+                tooManyAttempts:
+                  summary: Five wrong PINs from this address
+                  value:
+                    message: Too many attempts. Please try again in 57 seconds.
+                    errors:
+                      pin: [Too many attempts. Please try again in 57 seconds.]
+
+  /auth/tokens/current:
+    delete:
+      tags: [Authentication]
+      operationId: revokeCurrentToken
+      summary: Revoke the token this request was made with
+      description: Signs the device out. Other devices' tokens are untouched.
+      responses:
+        '204':
+          description: The token is revoked.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /timer:
+    get:
+      tags: [Timer]
+      operationId: showTimer
+      summary: Show the running session
+      description: Poll this to draw the clock. `data` is `null` while the clock is stopped.
+      responses:
+        '200':
+          $ref: '#/components/responses/SessionOrNothing'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+    patch:
+      tags: [Timer]
+      operationId: correctTimerStart
+      summary: Correct when the running session started
+      description: |
+        For the morning the timer was pressed late: the work began at five past
+        nine, not when it was remembered. The session stays running.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CorrectStartRequest'
+      responses:
+        '200':
+          description: The running session with its new start.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '409':
+          $ref: '#/components/responses/NothingRunning'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+    delete:
+      tags: [Timer]
+      operationId: discardTimer
+      summary: Discard the running session without recording it
+      description: For a timer started by mistake, or left running over a break that was not work at all.
+      responses:
+        '204':
+          description: The session is gone.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '409':
+          $ref: '#/components/responses/NothingRunning'
+
+  /timer/start:
+    post:
+      tags: [Timer]
+      operationId: startTimer
+      summary: Start the timer
+      description: |
+        Starts a session now. The dashboard remembers the last kind and area and
+        quietly forgets an area that has since been archived; a client is
+        expected to be explicit instead, so an archived or unknown area is
+        refused rather than dropped.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartTimerRequest'
+      responses:
+        '201':
+          description: The session just started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '409':
+          description: A session is already running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                message: A work session is already running.
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /timer/stop:
+    post:
+      tags: [Timer]
+      operationId: stopTimer
+      summary: Stop the running timer, now or at an earlier moment
+      description: |
+        Stops the session and returns it complete. With no body it stops now;
+        an idle detector that notices you left twenty minutes ago passes the
+        moment it last saw you as `ended_at`, so the idle time is not recorded
+        as work. A stop now within the same second as the start is a mis-click
+        rather than work, so the session is discarded and `data` is `null`.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StopTimerRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/SessionOrNothing'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '409':
+          $ref: '#/components/responses/NothingRunning'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /timer/notes:
+    post:
+      tags: [Timer]
+      operationId: addTimerNote
+      summary: Add to the running session's note
+      description: |
+        Appends a line to the running session's note, keeping what is already
+        there. Notes are kept to the running session: anything else is edited on
+        the timesheet.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddNoteRequest'
+      responses:
+        '200':
+          description: The running session with the line added.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '409':
+          $ref: '#/components/responses/NothingRunning'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /hours:
+    get:
+      tags: [Hours]
+      operationId: showHours
+      summary: Show today's hours and the period balance
+      description: |
+        The same figures the dashboard shows, worked out the same way. Worked
+        hours count completed contracted sessions only: a running timer moves
+        the figures when it is stopped, so a client showing a live total adds
+        the running session's elapsed time from `GET /timer` itself.
+      responses:
+        '200':
+          description: Today's figures and the period balance.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Hours'
+              example:
+                data:
+                  date: '2026-08-27'
+                  today:
+                    worked: 8.5
+                    expected: 7.5
+                    difference: 1
+                    lieu: 0
+                    leave: 0
+                    bank_holiday: null
+                  period:
+                    label: 10 Aug - 20 Sep 2026
+                    start: '2026-08-10'
+                    end: '2026-09-20'
+                    days_left: 24
+                    balance: 1
+                    limit: 16
+                    over_limit: false
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /work-areas:
+    get:
+      tags: [Work areas]
+      operationId: listWorkAreas
+      summary: List the areas a session can be booked to
+      description: Active areas, ordered by name. Archived areas are left out.
+      responses:
+        '200':
+          description: The active areas.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WorkArea'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+components:
+  securitySchemes:
+    bearerToken:
+      type: http
+      scheme: bearer
+      description: A personal access token created on the Settings page.
+
+  schemas:
+    Id:
+      type: integer
+      format: int64
+      minimum: 1
+      examples: [1]
+
+    Timestamp:
+      type: string
+      format: date-time
+      description: ISO 8601 with the application's UTC offset.
+      examples: ['2026-08-27T09:00:00+01:00']
+
+    WorkKindValue:
+      type: string
+      description: |
+        What the time is tracked as. `contracted` answers to the working
+        pattern and settles in the flexi balance; `lieu` is banked in its own
+        pot to be given back as time off later.
+      enum: [contracted, lieu]
+
+    WorkKind:
+      type: object
+      required: [value, label]
+      properties:
+        value:
+          $ref: '#/components/schemas/WorkKindValue'
+        label:
+          type: string
+          description: The label shown in the app for this kind.
+          enum: [Contracted hours, Time off in lieu]
+
+    WorkArea:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        name:
+          type: string
+          examples: [Licensing]
+
+    WorkSession:
+      type: object
+      required: [id, started_at, ended_at, kind, work_area, note]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        started_at:
+          $ref: '#/components/schemas/Timestamp'
+        ended_at:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+          description: Null while the session is still running.
+        kind:
+          $ref: '#/components/schemas/WorkKind'
+        work_area:
+          oneOf:
+            - $ref: '#/components/schemas/WorkArea'
+            - type: 'null'
+          description: Null when the session is booked to no area.
+        note:
+          type: ['string', 'null']
+          maxLength: 20000
+          description: One line per addition, joined with newlines. Null until something is written.
+          examples: ["Cleared the renewals backlog\nAnswered the phones"]
+
+    Date:
+      type: string
+      format: date
+      examples: ['2026-08-27']
+
+    HourCount:
+      type: number
+      description: Hours as a decimal, to two places. Whole hours are sent as integers.
+      examples: [7.5]
+
+    Hours:
+      type: object
+      required: [date, today, period]
+      properties:
+        date:
+          $ref: '#/components/schemas/Date'
+        today:
+          $ref: '#/components/schemas/TodayHours'
+        period:
+          $ref: '#/components/schemas/PeriodBalance'
+
+    TodayHours:
+      type: object
+      required: [worked, expected, difference, lieu, leave, bank_holiday]
+      properties:
+        worked:
+          $ref: '#/components/schemas/HourCount'
+          description: Completed contracted sessions started today.
+        expected:
+          $ref: '#/components/schemas/HourCount'
+          description: What the pattern asks for today, less any bank holiday or leave covering it.
+        difference:
+          $ref: '#/components/schemas/HourCount'
+          description: Worked less expected. Positive is a surplus.
+        lieu:
+          $ref: '#/components/schemas/HourCount'
+          description: Worked in lieu today. Banked as leave rather than counted above.
+        leave:
+          $ref: '#/components/schemas/HourCount'
+          description: Leave booked today.
+        bank_holiday:
+          type: ['string', 'null']
+          description: The bank holiday falling today, if any.
+          examples: [Summer bank holiday]
+
+    PeriodBalance:
+      type: object
+      required: [label, start, end, days_left, balance, limit, over_limit]
+      properties:
+        label:
+          type: string
+          examples: [10 Aug - 20 Sep 2026]
+        start:
+          $ref: '#/components/schemas/Date'
+        end:
+          $ref: '#/components/schemas/Date'
+        days_left:
+          type: integer
+          minimum: 0
+          description: Whole days from today to the end of the period.
+        balance:
+          $ref: '#/components/schemas/HourCount'
+          description: The flexi balance so far, including what carried in.
+        limit:
+          $ref: '#/components/schemas/HourCount'
+          description: How far either side of zero the balance may go.
+        over_limit:
+          type: boolean
+
+    SessionEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/WorkSession'
+
+    SessionOrNothingEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data:
+          oneOf:
+            - $ref: '#/components/schemas/WorkSession'
+            - type: 'null'
+
+    StartTimerRequest:
+      type: object
+      properties:
+        kind:
+          $ref: '#/components/schemas/WorkKindValue'
+          default: contracted
+        work_area_id:
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+          description: Must be an active area. Omit or send null to book to none.
+
+    StopTimerRequest:
+      type: object
+      properties:
+        ended_at:
+          $ref: '#/components/schemas/Timestamp'
+          description: When the work actually stopped. Must fall after the start and not in the future. Omit to stop now.
+
+    CorrectStartRequest:
+      type: object
+      required: [started_at]
+      properties:
+        started_at:
+          $ref: '#/components/schemas/Timestamp'
+          description: When the work actually began. Must be in the past.
+
+    AddNoteRequest:
+      type: object
+      required: [note]
+      properties:
+        note:
+          type: string
+          minLength: 1
+          maxLength: 20000
+          description: |
+            The line to add. Trimmed before it is stored, and refused if the
+            note has no room left for it.
+          examples: [Answered the phones]
+
+    CreateTokenRequest:
+      type: object
+      required: [pin, device_name]
+      properties:
+        pin:
+          type: string
+          pattern: '^[0-9]{6}$'
+          description: The six-digit PIN used on the login page.
+          examples: ['123456']
+        device_name:
+          type: string
+          maxLength: 255
+          description: What the token is listed as on the Settings page, so it can be revoked on its own.
+          examples: [Menu bar]
+
+    Token:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: "Send as `Authorization: Bearer <token>`."
+          examples: ['1|f3Qm9zKx0aB7cD2eF5gH8iJ1kL4mN7oP0qR3sT6uV9wX2yZ5']
+
+    Message:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+
+    ValidationErrors:
+      allOf:
+        - $ref: '#/components/schemas/Message'
+        - type: object
+          required: [errors]
+          properties:
+            errors:
+              type: object
+              description: Each failing field, with every message it earned.
+              additionalProperties:
+                type: array
+                items:
+                  type: string
+
+  responses:
+    SessionOrNothing:
+      description: The session, or `null` when the clock is stopped.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SessionOrNothingEnvelope'
+          examples:
+            running:
+              summary: A session is running
+              value:
+                data:
+                  id: 1
+                  started_at: '2026-08-27T09:00:00+01:00'
+                  ended_at: null
+                  kind: { value: contracted, label: Contracted hours }
+                  work_area: { id: 3, name: Licensing }
+                  note: Cleared the renewals backlog
+            stopped:
+              summary: The clock is stopped
+              value:
+                data: null
+
+    Unauthenticated:
+      description: The token is missing, wrong, or revoked.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Message'
+          example:
+            message: Unauthenticated.
+
+    NothingRunning:
+      description: There is no session to act on.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Message'
+          example:
+            message: No work session is running.
+
+    ValidationFailed:
+      description: The request body did not pass validation.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrors'
+          examples:
+            archivedArea:
+              summary: Starting against an archived area
+              value:
+                message: That area is not one you can book to.
+                errors:
+                  work_area_id: [That area is not one you can book to.]
+            endedBeforeStart:
+              summary: Stopping before the session started
+              value:
+                message: A work session must end after it starts.
+                errors:
+                  ended_at: [A work session must end after it starts.]
+            endedInFuture:
+              summary: Stopping in the future
+              value:
+                message: A work session cannot end in the future.
+                errors:
+                  ended_at: [A work session cannot end in the future.]
+            startedInFuture:
+              summary: Correcting the start to a moment not yet reached
+              value:
+                message: A work session cannot start in the future.
+                errors:
+                  started_at: [A work session cannot start in the future.]
+            emptyNote:
+              summary: Adding an empty note
+              value:
+                message: Write something to add.
+                errors:
+                  note: [Write something to add.]
+            noteFull:
+              summary: The note has no room left
+              value:
+                message: This note has no room left. Trim it on the timesheet first.
+                errors:
+                  note: [This note has no room left. Trim it on the timesheet first.]
