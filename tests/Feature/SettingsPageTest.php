@@ -91,3 +91,51 @@ it('feeds the sickness allowance on the leave page', function () {
         ->assertSee('Full pay')
         ->assertDontSee('service_started');
 });
+
+/*
+|--------------------------------------------------------------------------
+| API tokens
+|--------------------------------------------------------------------------
+*/
+
+it('creates a named token and shows it once', function () {
+    $component = Livewire::test('pages::settings')
+        ->set('tokenName', 'Menu bar')
+        ->call('createToken')
+        ->assertHasNoErrors()
+        ->assertSet('tokenName', '')
+        ->assertSee('Copy this now.')
+        ->assertSee('Menu bar');
+
+    $plainTextToken = $component->get('plainTextToken');
+
+    expect($plainTextToken)->not->toBeNull()
+        ->and(auth()->user()->tokens()->count())->toBe(1);
+
+    auth()->logout();
+
+    $this->withToken($plainTextToken)->getJson('/api/timer')->assertOk();
+});
+
+it('will not create a token without a name', function () {
+    Livewire::test('pages::settings')
+        ->call('createToken')
+        ->assertHasErrors(['tokenName' => 'Say what the token is for.']);
+
+    expect(auth()->user()->tokens()->count())->toBe(0);
+});
+
+it('revokes a token', function () {
+    $token = auth()->user()->createToken('Menu bar');
+
+    Livewire::test('pages::settings')
+        ->assertSee('Menu bar')
+        ->call('revokeToken', $token->accessToken->id)
+        ->assertDontSee('Menu bar');
+
+    expect(auth()->user()->tokens()->count())->toBe(0);
+
+    auth()->logout();
+
+    $this->withToken($token->plainTextToken)->getJson('/api/timer')->assertUnauthorized();
+});
