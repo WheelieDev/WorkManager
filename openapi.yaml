@@ -344,23 +344,21 @@ components:
 
     WorkSession:
       type: object
-      required: [id, started_at, ended_at, kind, work_area, note]
+      required: [id, started_at, kind, note]
       properties:
         id:
           $ref: '#/components/schemas/Id'
         started_at:
           $ref: '#/components/schemas/Timestamp'
         ended_at:
-          oneOf:
-            - $ref: '#/components/schemas/Timestamp'
-            - type: 'null'
-          description: Null while the session is still running.
+          type: ['string', 'null']
+          format: date-time
+          description: ISO 8601 with the application's UTC offset. Null while the session is still running.
+          examples: ['2026-08-27T17:30:00+01:00']
         kind:
           $ref: '#/components/schemas/WorkKind'
         work_area:
-          oneOf:
-            - $ref: '#/components/schemas/WorkArea'
-            - type: 'null'
+          $ref: '#/components/schemas/WorkArea'
           description: Null when the session is booked to no area.
         note:
           type: ['string', 'null']
@@ -446,12 +444,10 @@ components:
 
     SessionOrNothingEnvelope:
       type: object
-      required: [data]
       properties:
         data:
-          oneOf:
-            - $ref: '#/components/schemas/WorkSession'
-            - type: 'null'
+          $ref: '#/components/schemas/WorkSession'
+          description: Null while the clock is stopped.
 
     StartTimerRequest:
       type: object
@@ -460,9 +456,9 @@ components:
           $ref: '#/components/schemas/WorkKindValue'
           default: contracted
         work_area_id:
-          oneOf:
-            - $ref: '#/components/schemas/Id'
-            - type: 'null'
+          type: ['integer', 'null']
+          format: int64
+          minimum: 1
           description: Must be an active area. Omit or send null to book to none.
 
     StopTimerRequest:
