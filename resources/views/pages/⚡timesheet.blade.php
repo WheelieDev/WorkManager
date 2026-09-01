@@ -1,6 +1,8 @@
 <?php
 
+use App\Enums\LeaveType;
 use App\Enums\WorkKind;
+use App\Models\LeaveDay;
 use App\Models\WorkArea;
 use App\Models\WorkSession;
 use App\Support\FlexiCalculator;
@@ -47,6 +49,16 @@ new class extends Component {
     public string $note = '';
 
     public bool $showingForm = false;
+
+    public string $phased_date = '';
+
+    public string $phased_hours = '';
+
+    public bool $phasedExists = false;
+
+    public string $phasedOriginalDate = '';
+
+    public bool $showingPhasedForm = false;
 
     /**
      * Start on today.
@@ -186,6 +198,77 @@ new class extends Component {
     }
 
     /**
+     * Open the form to add or edit the phased return on the given date.
+     *
+     * A day holds at most one phased return, so the date is enough to find it.
+     */
+    public function editPhasedReturn(string $date): void
+    {
+        $this->resetValidation();
+
+        $existing = $this->phasedReturnOn($date);
+
+        $this->phased_date = $date;
+        $this->phased_hours = $existing === null ? '' : (string) $existing->hours;
+        $this->phasedExists = $existing !== null;
+        $this->phasedOriginalDate = $existing === null ? '' : $date;
+        $this->showingPhasedForm = true;
+    }
+
+    /**
+     * Save the phased return being added or edited.
+     */
+    public function savePhasedReturn(): void
+    {
+        $validated = $this->validate([
+            'phased_date' => ['required', 'date'],
+            'phased_hours' => ['required', 'numeric', 'gt:0', 'max:24'],
+        ], [
+            'phased_hours.gt' => 'The offset must be more than zero hours.',
+            'phased_hours.max' => 'The offset cannot be more than a day.',
+        ], [
+            'phased_date' => 'date',
+            'phased_hours' => 'hours',
+        ]);
+
+        $date = Carbon::parse($validated['phased_date'])->toDateString();
+
+        LeaveDay::query()->updateOrCreate(
+            ['date' => $date, 'type' => LeaveType::PhasedReturn],
+            ['hours' => round((float) $validated['phased_hours'], 2)],
+        );
+
+        // Editing may move the offset to another day; a day only holds one,
+        // so the row it came from has to go rather than linger as a second.
+        if ($this->phasedOriginalDate !== '' && $this->phasedOriginalDate !== $date) {
+            $this->phasedReturnOn($this->phasedOriginalDate)?->delete();
+        }
+
+        $this->showingPhasedForm = false;
+    }
+
+    /**
+     * Remove the phased return from the date being edited.
+     */
+    public function removePhasedReturn(): void
+    {
+        $this->phasedReturnOn($this->phasedOriginalDate)?->delete();
+
+        $this->showingPhasedForm = false;
+    }
+
+    /**
+     * Get the phased return booked on the given date, if any.
+     */
+    protected function phasedReturnOn(string $date): ?LeaveDay
+    {
+        return LeaveDay::query()
+            ->where('type', LeaveType::PhasedReturn)
+            ->where('date', Carbon::parse($date)->toDateString())
+            ->first();
+    }
+
+    /**
      * Build the period, then whichever slice the current view needs.
      */
     public function with(): array
@@ -266,6 +349,7 @@ new class extends Component {
     {
         $key = $date->toDateString();
         $onDay = $sessions->get($key, collect());
+        $phased = $calculator->phasedReturnHours($date);
 
         return [
             'date' => $date,
@@ -279,7 +363,8 @@ new class extends Component {
             'isFuture' => $date->copy()->startOfDay()->isFuture(),
             'isTracked' => $calculator->isTracked($date),
             'bankHoliday' => $calculator->bankHolidayTitle($date),
-            'leave' => $calculator->leaveHours($date),
+            'leave' => round($calculator->leaveHours($date) - $phased, 2),
+            'phased' => $phased,
             'lieu' => $calculator->lieuHours($date),
             'isVisible' => $this->allDays
                 || $calculator->isPatternWorkingDay($date)
@@ -449,6 +534,37 @@ new class extends Component {
             <div class="flex gap-2">
                 <flux:button type="submit" variant="primary">Save</flux:button>
                 <flux:button variant="ghost" wire:click="$set('showingForm', false)">Cancel</flux:button>
+            </div>
+        </form>
+    </flux:modal>
+
+    <flux:modal wire:model="showingPhasedForm" class="max-w-sm">
+        <form wire:submit="savePhasedReturn" class="flex flex-col gap-4">
+            <flux:heading size="lg">{{ $phasedExists ? 'Edit phased return' : 'Add phased return' }}</flux:heading>
+
+            <flux:field>
+                <flux:label>Date</flux:label>
+                <flux:input type="date" wire:model="phased_date" />
+                <flux:error name="phased_date" />
+            </flux:field>
+
+            <flux:field>
+                <flux:label>Hours offset</flux:label>
+                <flux:description>The hours the phased return covers, so the day expects that much less of you.</flux:description>
+                <flux:input type="number" step="0.25" min="0" wire:model="phased_hours" />
+                <flux:error name="phased_hours" />
+            </flux:field>
+
+            <div class="flex gap-2">
+                <flux:button type="submit" variant="primary">Save</flux:button>
+
+                @if ($phasedExists)
+                    <flux:button variant="ghost"
+                                 wire:click="removePhasedReturn"
+                                 wire:confirm="Remove this phased return?">Remove</flux:button>
+                @endif
+
+                <flux:button variant="ghost" wire:click="$set('showingPhasedForm', false)">Cancel</flux:button>
             </div>
         </form>
     </flux:modal>

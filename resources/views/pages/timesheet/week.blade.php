@@ -56,9 +56,9 @@
                     'border-zinc-200 dark:border-zinc-700' => ! $d['isToday'] && ! $d['isFuture'],
                     'border-accent bg-accent/[0.07] dark:border-accent' => $d['isToday'],
                     'border-dashed border-zinc-200 dark:border-zinc-800' => $d['isFuture'],
-                    'bg-pot-other/[0.08] dark:bg-pot-other-bright/[0.1]' => $d['bankHoliday'] && ! $d['isToday'],
+                    'bg-pot-other/[0.08] dark:bg-pot-other-bright/[0.1]' => ($d['bankHoliday'] || ($d['phased'] > 0 && $d['leave'] <= 0)) && ! $d['isToday'],
                     'bg-pot-annual/[0.08] dark:bg-pot-annual-bright/[0.1]' => $d['leave'] > 0 && ! $d['bankHoliday'] && ! $d['isToday'],
-                    'bg-pot-lieu/[0.08] dark:bg-pot-lieu-bright/[0.1]' => $d['lieu'] > 0 && $d['leave'] <= 0 && ! $d['bankHoliday'] && ! $d['isToday'],
+                    'bg-pot-lieu/[0.08] dark:bg-pot-lieu-bright/[0.1]' => $d['lieu'] > 0 && $d['leave'] <= 0 && $d['phased'] <= 0 && ! $d['bankHoliday'] && ! $d['isToday'],
                 ])>
                     @if ($d['bankHoliday'])
                         <div class="truncate text-[0.7rem] font-medium text-pot-other dark:text-pot-other-bright" title="{{ $d['bankHoliday'] }}">
@@ -69,6 +69,12 @@
                     @if ($d['leave'] > 0)
                         <div class="truncate text-[0.7rem] font-medium text-pot-annual dark:text-pot-annual-bright" title="Annual leave">
                             Leave {{ number_format($d['leave'], 2) }}h
+                        </div>
+                    @endif
+
+                    @if ($d['phased'] > 0)
+                        <div class="truncate text-[0.7rem] font-medium text-pot-other dark:text-pot-other-bright" title="Phased return">
+                            Phased {{ number_format($d['phased'], 2) }}h
                         </div>
                     @endif
 

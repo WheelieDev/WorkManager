@@ -25,6 +25,15 @@
                 </span>
             @endif
 
+            @if ($day['phased'] > 0)
+                <button type="button"
+                        class="text-xs text-pot-other hover:underline dark:text-pot-other-bright"
+                        wire:click="editPhasedReturn('{{ $day['key'] }}')"
+                        title="Edit the phased return">
+                    Phased return {{ number_format($day['phased'], 2) }}h
+                </button>
+            @endif
+
             {{-- Lieu is worked but not counted here: it is banked as leave, so
                  it sits beside the day's figures rather than inside them. --}}
             @if ($day['lieu'] > 0)
@@ -112,7 +121,13 @@
         @endforelse
     </div>
 
-    <flux:button size="sm" variant="subtle" icon="plus" class="mt-4" wire:click="addSession('{{ $day['key'] }}')">
-        Add entry
-    </flux:button>
+    <div class="mt-4 flex gap-2">
+        <flux:button size="sm" variant="subtle" icon="plus" wire:click="addSession('{{ $day['key'] }}')">
+            Add entry
+        </flux:button>
+
+        <flux:button size="sm" variant="subtle" icon="plus" wire:click="editPhasedReturn('{{ $day['key'] }}')">
+            Phased return
+        </flux:button>
+    </div>
 </section>

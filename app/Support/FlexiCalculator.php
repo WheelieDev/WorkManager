@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Enums\LeaveType;
 use App\Enums\Weekday;
 use App\Enums\WorkKind;
 use App\Models\BankHoliday;
@@ -50,6 +51,13 @@ class FlexiCalculator
      * @var array<string, float>|null
      */
     protected ?array $leave = null;
+
+    /**
+     * Cached phased return hours, keyed by date.
+     *
+     * @var array<string, float>|null
+     */
+    protected ?array $phased = null;
 
     /**
      * Get the hours the pattern expects to be worked on the given date.
@@ -117,6 +125,24 @@ class FlexiCalculator
             ->all();
 
         return $this->leave[Carbon::parse($date)->toDateString()] ?? 0.0;
+    }
+
+    /**
+     * Get the hours a phased return offsets on a date.
+     *
+     * These are part of the leave hours above, pulled out so a day can name
+     * the phased return separately from leave booked alongside it.
+     */
+    public function phasedReturnHours(DateTimeInterface $date): float
+    {
+        $this->phased ??= LeaveDay::query()
+            ->where('type', LeaveType::PhasedReturn)
+            ->get()
+            ->groupBy(fn (LeaveDay $leave): string => $leave->date->toDateString())
+            ->map(fn ($onDay): float => round($onDay->sum('hours'), 2))
+            ->all();
+
+        return $this->phased[Carbon::parse($date)->toDateString()] ?? 0.0;
     }
 
     /**

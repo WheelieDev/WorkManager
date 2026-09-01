@@ -26,6 +26,14 @@ class LeaveDayFactory extends Factory
     }
 
     /**
+     * Book the day as a phased return offset.
+     */
+    public function phasedReturn(): static
+    {
+        return $this->state(['type' => LeaveType::PhasedReturn]);
+    }
+
+    /**
      * Book the leave on a given date.
      */
     public function on(string $date, float $hours = 7.5): static
