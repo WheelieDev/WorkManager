@@ -135,7 +135,7 @@ it('lists the entries for a single day', function () {
         ->call('showMode', 'day')
         ->assertSee('09:00')
         ->assertSee('12:30')
-        ->assertSee('3.50h')
+        ->assertSee('3h 30m')
         ->assertSee('Add entry');
 });
 
@@ -151,7 +151,7 @@ it('shows the bank holiday on the day it falls', function () {
     Livewire::test('pages::timesheet')
         ->call('showDay', '2026-08-31')
         ->assertSee('Summer bank holiday')
-        ->assertSee('0.00 / 0.00');
+        ->assertSee('0h / 0h');
 });
 
 /*
@@ -230,9 +230,9 @@ it('falls back to the working week with no pattern at all', function () {
 it('does not count future days towards the week totals', function () {
     // Today is Thursday 27 August, so Friday of this week is still to come.
     Livewire::test('pages::timesheet')
-        ->assertSee('0.00 / 30.00')
+        ->assertSee('0h / 30h')
         ->call('shift', -2)
-        ->assertSee('0.00 / 37.50');
+        ->assertSee('0h / 37h 30m');
 })->note('Otherwise the current week reads worse than the balance does.');
 
 it('still shows a bank holiday that falls on a working day', function () {
@@ -263,8 +263,8 @@ it('totals each week of the period', function () {
 
     Livewire::test('pages::timesheet')
         ->call('showMode', 'period')
-        ->assertSee('9.00 / 30.00')
-        ->assertSee('-21.00');
+        ->assertSee('9h / 30h')
+        ->assertSee('-21h');
 });
 
 it('marks a week that has not started yet', function () {
@@ -452,7 +452,7 @@ it('warns when the balance passes the limit', function () {
 
     Livewire::test('pages::timesheet')
         ->assertSee('Over the 16h limit by')
-        ->assertSee('+20.00')
+        ->assertSee('+20h')
         ->assertSee('hours banked');
 });
 

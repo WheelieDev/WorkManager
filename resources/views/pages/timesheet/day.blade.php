@@ -21,7 +21,7 @@
 
             @if ($day['leave'] > 0)
                 <span class="text-xs text-zinc-500 dark:text-zinc-400">
-                    Annual leave {{ number_format($day['leave'], 2) }}h
+                    Annual leave {{ $duration($day['leave']) }}
                 </span>
             @endif
 
@@ -30,7 +30,7 @@
                         class="text-xs text-pot-other hover:underline dark:text-pot-other-bright"
                         wire:click="editPhasedReturn('{{ $day['key'] }}')"
                         title="Edit the phased return">
-                    Phased return {{ number_format($day['phased'], 2) }}h
+                    Phased return {{ $duration($day['phased']) }}
                 </button>
             @endif
 
@@ -38,14 +38,14 @@
                  it sits beside the day's figures rather than inside them. --}}
             @if ($day['lieu'] > 0)
                 <span class="text-xs text-zinc-500 dark:text-zinc-400">
-                    Lieu banked {{ number_format($day['lieu'], 2) }}h
+                    Lieu banked {{ $duration($day['lieu']) }}
                 </span>
             @endif
         </div>
 
         <div class="flex items-baseline gap-3 text-sm">
             <span class="tabular text-zinc-400 dark:text-zinc-500">
-                {{ number_format($day['worked'], 2) }} / {{ number_format($day['expected'], 2) }}
+                {{ $duration($day['worked']) }} / {{ $duration($day['expected']) }}
             </span>
 
             @if ($day['isFuture'] || ! $day['isTracked'])
@@ -105,7 +105,7 @@
                             <span class="text-[0.7rem] uppercase tracking-[0.12em] text-zinc-400 dark:text-zinc-500">In lieu</span>
                         @endif
 
-                        <span class="tabular text-sm text-zinc-400 dark:text-zinc-500">{{ number_format($session->hours(), 2) }}h</span>
+                        <span class="tabular text-sm text-zinc-400 dark:text-zinc-500">{{ $duration($session->hours()) }}</span>
                         <button type="button"
                                 class="text-sm text-zinc-300 opacity-0 transition hover:text-deficit focus-visible:opacity-100 group-hover/entry:opacity-100 dark:text-zinc-600"
                                 wire:click="deleteSession({{ $session->id }})"

@@ -9,7 +9,7 @@
         @if ($week['hasCountedDays'])
             <div class="flex items-baseline gap-2.5 text-xs">
                 <span class="tabular text-zinc-400 dark:text-zinc-500">
-                    {{ number_format($week['worked'], 2) }} / {{ number_format($week['expected'], 2) }}
+                    {{ $duration($week['worked']) }} / {{ $duration($week['expected']) }}
                 </span>
                 <span class="tabular font-medium {{ $tone($week['delta']) }}">{{ $signed($week['delta']) }}</span>
             </div>
@@ -68,19 +68,19 @@
 
                     @if ($d['leave'] > 0)
                         <div class="truncate text-[0.7rem] font-medium text-pot-annual dark:text-pot-annual-bright" title="Annual leave">
-                            Leave {{ number_format($d['leave'], 2) }}h
+                            Leave {{ $duration($d['leave']) }}
                         </div>
                     @endif
 
                     @if ($d['phased'] > 0)
                         <div class="truncate text-[0.7rem] font-medium text-pot-other dark:text-pot-other-bright" title="Phased return">
-                            Phased {{ number_format($d['phased'], 2) }}h
+                            Phased {{ $duration($d['phased']) }}
                         </div>
                     @endif
 
                     @if ($d['lieu'] > 0)
                         <div class="truncate text-[0.7rem] font-medium text-pot-lieu dark:text-pot-lieu-bright" title="Banked as time off in lieu">
-                            Lieu {{ number_format($d['lieu'], 2) }}h
+                            Lieu {{ $duration($d['lieu']) }}
                         </div>
                     @endif
 
@@ -112,7 +112,7 @@
 
                 {{-- Above the line is time banked, below it time owed, each
                      half tinted so the direction reads before the bar does. --}}
-                <div class="relative mt-1.5 h-10 overflow-hidden rounded-md" title="{{ number_format($d['worked'], 2) }} worked of {{ number_format($d['expected'], 2) }} expected">
+                <div class="relative mt-1.5 h-10 overflow-hidden rounded-md" title="{{ $duration($d['worked']) }} worked of {{ $duration($d['expected']) }} expected">
                     <div class="absolute inset-x-0 top-0 h-1/2 bg-surplus/[0.07] dark:bg-surplus-bright/[0.08]"></div>
                     <div class="absolute inset-x-0 bottom-0 h-1/2 bg-deficit/[0.07] dark:bg-deficit-bright/[0.08]"></div>
 
@@ -134,7 +134,7 @@
 
                 <div class="flex items-baseline justify-between gap-1 text-[0.7rem]">
                     <span class="tabular text-zinc-400 dark:text-zinc-500">
-                        {{ number_format($d['worked'], 2) }} / {{ number_format($d['expected'], 2) }}
+                        {{ $duration($d['worked']) }} / {{ $duration($d['expected']) }}
                     </span>
 
                     @if ($d['isFuture'])

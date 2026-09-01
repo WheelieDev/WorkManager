@@ -378,7 +378,8 @@ new class extends Component {
     $tone = fn (float $v): string => $v > 0
         ? 'text-surplus dark:text-surplus-bright'
         : ($v < 0 ? 'text-deficit dark:text-deficit-bright' : 'text-zinc-400 dark:text-zinc-500');
-    $signed = fn (float $v): string => ($v > 0 ? '+' : '').number_format($v, 2);
+    $duration = fn (float $v): string => \App\Support\Duration::hours($v);
+    $signed = fn (float $v): string => \App\Support\Duration::signed($v);
 @endphp
 
 <div class="mx-auto max-w-6xl">
@@ -470,7 +471,7 @@ new class extends Component {
 
         @if ($isOverLimit)
             <p class="mt-3 text-sm text-deficit dark:text-deficit-bright">
-                Over the {{ $limit }}h limit by <span class="tabular">{{ number_format(abs($balance) - $limit, 2) }}</span>h.
+                Over the {{ $limit }}h limit by <span class="tabular">{{ $duration(abs($balance) - $limit) }}</span>.
                 @if ($balance > 0) Only {{ $limit }}h carries into the next period. @endif
             </p>
         @endif

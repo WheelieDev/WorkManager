@@ -61,7 +61,7 @@
                 <div class="flex w-40 shrink-0 items-baseline justify-end gap-2.5 text-xs">
                     @if ($w['hasCountedDays'])
                         <span class="tabular text-zinc-400 dark:text-zinc-500">
-                            {{ number_format($w['worked'], 2) }} / {{ number_format($w['expected'], 2) }}
+                            {{ $duration($w['worked']) }} / {{ $duration($w['expected']) }}
                         </span>
                         <span class="tabular w-14 text-right font-medium {{ $tone($w['delta']) }}">{{ $signed($w['delta']) }}</span>
                     @else

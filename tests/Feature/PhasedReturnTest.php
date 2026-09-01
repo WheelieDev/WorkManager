@@ -43,8 +43,8 @@ it('offsets the expected hours by the booked amount', function () {
 
     Livewire::test('pages::timesheet')
         ->call('showDay', '2026-08-25')
-        ->assertSee('0.00 / 4.00')
-        ->assertSee('Phased return 3.50h');
+        ->assertSee('0h / 4h')
+        ->assertSee('Phased return 3h 30m');
 });
 
 it('updates the booked hours rather than adding a second entry', function () {
@@ -113,8 +113,8 @@ it('names the phased return separately from leave booked alongside it', function
 
     Livewire::test('pages::timesheet')
         ->call('showDay', '2026-08-25')
-        ->assertSee('Annual leave 2.00h')
-        ->assertSee('Phased return 3.50h');
+        ->assertSee('Annual leave 2h')
+        ->assertSee('Phased return 3h 30m');
 });
 
 it('grounds a phased return day in the other colour', function () {
@@ -122,7 +122,7 @@ it('grounds a phased return day in the other colour', function () {
 
     Livewire::test('pages::timesheet')
         ->call('showWeek', '2026-08-24')
-        ->assertSee('Phased 3.50h')
+        ->assertSee('Phased 3h 30m')
         ->assertSeeHtml('bg-pot-other/[0.08]');
 });
 

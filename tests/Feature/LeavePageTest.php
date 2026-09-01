@@ -253,15 +253,15 @@ it('names the leave on the timesheet day', function () {
 
     Livewire::test('pages::timesheet')
         ->call('showDay', '2026-09-08')
-        ->assertSee('Annual leave 2.00h')
-        ->assertSee('0.00 / 2.00');
+        ->assertSee('Annual leave 2h')
+        ->assertSee('0h / 2h');
 })->note('Otherwise a day quietly expecting less makes no sense.');
 
 it('names the leave on the timesheet week', function () {
     LeaveDay::factory()->on('2026-09-08', 2.0)->create();
 
     Livewire::test('pages::timesheet')
-        ->assertSee('Leave 2.00h');
+        ->assertSee('Leave 2h');
 });
 
 it('requires signing in', function () {
